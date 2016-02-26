@@ -102,33 +102,7 @@ public class CodeGenerator {
 		
 		tbl.gen_DaoClass(table, columns);
 		
-		// class TABLE
-		dto.write("	public static class %s {", table.getName());
-		
-		// field column from class TABLE
-		for (final ColumnDescriptor col : columns) {
-		final JdbcType type = getJdbcType(col.getType());
-		if (type == null) throw new RuntimeException(String.format("Unknown type: %s", col.getType()));
-		dto.write("		public %s %s;", type.getJavaType(), col.getName().toLowerCase());
-		}
-		
-		// TABLE constructor
-		final List<String> colDefs = Stream.of(columns).map(new Function<ColumnDescriptor, String>() {
-
-			@Override
-			public String apply(ColumnDescriptor t) {
-				final JdbcType jdbcType = getJdbcType(t.getType());
-				final String javaType = jdbcType == null ? "Object" : jdbcType.getJavaType();
-				return String.format("%s %s", javaType, t.getName().toLowerCase());
-			}
-
-		}).toList();
-		dto.write("		public %s(%s) {", table.getName(), StringUtils.join(colDefs.iterator(), ", "));
-		for (final ColumnDescriptor col : columns) {
-			dto.write("			this.%s = %s;", col.getName().toLowerCase(), col.getName().toLowerCase());
-		}
-		dto.write("		}");
-		dto.write("	}\n");
+		dto.gen_DtoClass(table, columns);
 		}
 		
 		// end class Tables
@@ -463,6 +437,37 @@ public class CodeGenerator {
 	private class DtoGenerator extends Generator {
 		public DtoGenerator(Writer wrapped) {
 			super(wrapped);
+		}
+
+		public void gen_DtoClass(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
+			// class TABLE
+			write("	public static class %s {", table.getName());
+
+			// field column from class TABLE
+			for (final ColumnDescriptor col : columns) {
+				final JdbcType type = getJdbcType(col.getType());
+				if (type == null) throw new RuntimeException(String.format("Unknown type: %s", col.getType()));
+				write("		public %s %s;", type.getJavaType(), col.getName().toLowerCase());
+			}
+
+			// TABLE constructor
+			final List<String> colDefs = Stream.of(columns).map(new Function<ColumnDescriptor, String>() {
+
+				@Override
+				public String apply(ColumnDescriptor t) {
+					final JdbcType jdbcType = getJdbcType(t.getType());
+					final String javaType = jdbcType == null ? "Object" : jdbcType.getJavaType();
+					return String.format("%s %s", javaType, t.getName().toLowerCase());
+				}
+
+			}).toList();
+			write("		public %s(%s) {", table.getName(), StringUtils.join(colDefs.iterator(), ", "));
+			for (final ColumnDescriptor col : columns) {
+				write("			this.%s = %s;", col.getName().toLowerCase(), col.getName().toLowerCase());
+			}
+			write("		}");
+			write("	}\n");
+
 		}
 
 		public void gen_header() throws IOException {
