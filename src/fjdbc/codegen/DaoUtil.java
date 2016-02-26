@@ -642,7 +642,7 @@ public class DaoUtil {
 
 	public static abstract class Dao {
 		protected final String tableName;
-		private final Connection cnx;
+		protected final Connection cnx;
 
 		public Dao(Connection cnx, String tableName) {
 			this.cnx = cnx;

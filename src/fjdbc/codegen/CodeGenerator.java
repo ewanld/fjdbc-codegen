@@ -118,9 +118,7 @@ public class CodeGenerator {
 		}
 
 		public void gen_DaoClass(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
-			// class TABLE_Dao
 			write("	public static class %s_Dao extends Dao {", table.getName());
-			write("		private Connection cnx;");
 
 			// enum Field
 			for (final ColumnDescriptor col : columns) {
@@ -130,7 +128,7 @@ public class CodeGenerator {
 			}
 			write("		");
 
-			gen_TABLE_Dao(table);
+			gen_constructor(table);
 			gen_search(table, columns);
 			gen_search2(table);
 
@@ -143,7 +141,6 @@ public class CodeGenerator {
 				gen_insertBatch(table, columns);
 			}
 
-			// end class TABLE_Dao
 			write("	}\n");
 		}
 
@@ -391,11 +388,10 @@ public class CodeGenerator {
 			//@formatter:on
 		}
 
-		public void gen_TABLE_Dao(final TableDescriptor table) throws IOException {
+		public void gen_constructor(final TableDescriptor table) throws IOException {
 			//@formatter:off
 			write("		public %s_Dao(Connection cnx) {", table.getName());
 			write("			super(cnx, \"%s\");", table.getName());
-			write("			this.cnx = cnx;");
 			write("		}\n");
 			//@formatter:on
 		}
