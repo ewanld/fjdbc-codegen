@@ -111,11 +111,11 @@ public class DaoUtil {
 	}
 
 	public static class ConditionStringRelational extends ConditionSimple {
-		private final String value;
+		private final SqlExpr<String> value;
 		private final RelationalOperator operator;
 		private final boolean ignoreCase;
 
-		public ConditionStringRelational(String fieldName, RelationalOperator operator, String value,
+		public ConditionStringRelational(String fieldName, RelationalOperator operator, SqlExpr<String> value,
 				boolean ignoreCase) {
 			super(fieldName);
 			assert operator != null;
@@ -128,13 +128,13 @@ public class DaoUtil {
 
 		@Override
 		public String toSql() {
-			return ignoreCase ? String.format("lower(%s) %s lower(?)", fieldName, operator.toSql()) : String.format(
-					"%s %s ?", fieldName, operator.toSql());
+			return ignoreCase ? String.format("lower(%s) %s lower(%s)", fieldName, operator.toSql(), value.toSql())
+					: String.format("%s %s %s", fieldName, operator.toSql(), value.toSql());
 		}
 
 		@Override
 		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			st.setString(parameterIndex.nextValue(), value);
+			value.bind(st, parameterIndex);
 		}
 	}
 
@@ -178,10 +178,10 @@ public class DaoUtil {
 	}
 
 	public static class ConditionStringLike extends ConditionSimple {
-		private final String value;
+		private final SqlExpr<String> value;
 		private final String escapeString;
 
-		public ConditionStringLike(String fieldName, String value, String escapeString) {
+		public ConditionStringLike(String fieldName, SqlExpr<String> value, String escapeString) {
 			super(fieldName);
 			assert value != null;
 
@@ -189,18 +189,22 @@ public class DaoUtil {
 			this.value = value;
 		}
 
-		public ConditionStringLike(String fieldName, String value) {
+		public ConditionStringLike(String fieldName, SqlExpr<String> value) {
 			this(fieldName, value, null);
 		}
 
 		@Override
 		public String toSql() {
-			final StringBuilder res = new StringBuilder(String.format("%s like %s", fieldName,
-					SqlUtils.toLiteralString(value)));
+			final StringBuilder res = new StringBuilder(String.format("%s like %s", fieldName, value.toSql()));
 			if (escapeString != null) {
 				res.append(String.format(" escape %s", SqlUtils.toLiteralString(escapeString)));
 			}
 			return res.toString();
+		}
+
+		@Override
+		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
+			value.bind(st, parameterIndex);
 		}
 	}
 
