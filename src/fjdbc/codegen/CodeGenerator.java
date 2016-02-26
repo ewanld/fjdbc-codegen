@@ -19,6 +19,7 @@ import com.github.stream4j.Function;
 import com.github.stream4j.Stream;
 
 import fjdbc.codegen.DbUtil.ColumnDescriptor;
+import fjdbc.codegen.DbUtil.SequenceDescriptor;
 import fjdbc.codegen.DbUtil.TableDescriptor;
 
 public class CodeGenerator {
@@ -26,11 +27,13 @@ public class CodeGenerator {
 	private final Map<Integer, JdbcType> jdbcTypeMap;
 	private final String packageName;
 	private final String outputDir;
+	private final String sourceDir;
 
 	public CodeGenerator(DbUtil dbUtil, String outputDir, String packageName) {
 		this.dbUtil = dbUtil;
 		this.outputDir = outputDir;
 		this.packageName = packageName;
+		sourceDir = outputDir + "/" + packageName.replace('.', '/');
 
 		// see http://www.tutorialspoint.com/jdbc/jdbc-data-types.htm
 		// see http://docs.oracle.com/javase/1.5.0/docs/guide/jdbc/getstart/mapping.html
@@ -70,15 +73,25 @@ public class CodeGenerator {
 		return res;
 	}
 
-	public void gen() throws SQLException, IOException {
-		final String sourceDir = outputDir + "/" + packageName.replace('.', '/');
+	public void gen() throws IOException, SQLException {
 		new File(sourceDir).mkdirs();
+		gen_DtoAndTables();
+		gen_Sequences();
 
+	}
+
+	public void gen_Sequences() throws IOException, SQLException {
+		final SequencesGenerator seq = new SequencesGenerator(new FileWriter(sourceDir + "/Sequences.java"));
+		final Collection<SequenceDescriptor> sequences = dbUtil.searchSequences();
+		//seq.write(" public class Sequences");
+		seq.close();
+	}
+
+	public void gen_DtoAndTables() throws SQLException, IOException {
 		final TablesGenerator tbl = new TablesGenerator(new FileWriter(sourceDir + "/Tables.java"));
 		final DtoGenerator dto = new DtoGenerator(new FileWriter(sourceDir + "/Dto.java"));
-		final SequencesGenerator seq = new SequencesGenerator(new FileWriter(sourceDir + "/Sequences.java"));
 
-		final Collection<TableDescriptor> _tables = dbUtil.searchTables();
+		final Collection<TableDescriptor> tables = dbUtil.searchTables();
 
 		tbl.gen_header();
 		dto.gen_header();
@@ -91,21 +104,47 @@ public class CodeGenerator {
 		tbl.write("public class Tables {");
 		
 		// fields
-		for (final TableDescriptor table : _tables) {
+		for (final TableDescriptor table : tables) {
 			tbl.write("	public final %s_Dao %s;", table.getName(), table.getName().toLowerCase());
 		}
 		tbl.write("	");
 		
 		// constructor Tables
 		tbl.write("	public Tables(Connection cnx) {");
-		for (final TableDescriptor table : _tables) {
+		for (final TableDescriptor table : tables) {
 			tbl.write("		%s = new %s_Dao(cnx);", table.getName().toLowerCase(), table.getName());
 		}
 		tbl.write("	}");
 		
-		for (final TableDescriptor table : _tables) {
+		for (final TableDescriptor table : tables) {
 		final Collection<ColumnDescriptor> columns = dbUtil.searchColumns(table.getName());
-
+		
+		// class TABLE_Dao
+		tbl.write("	public static class %s_Dao extends Dao {", table.getName());
+		tbl.write("		private Connection cnx;");
+		
+		// enum Field
+		for (final ColumnDescriptor col : columns) {
+			final JdbcType type = getJdbcType(col.getType());
+			tbl.write("		public final %s %s = new %s(\"%s\");", type.getFieldClassName(), col.getName().toLowerCase(), type.getFieldClassName(), col.getName());
+		}
+		tbl.write("		");
+		
+		tbl.gen_TABLE_Dao(table);
+		tbl.gen_search(table, columns);
+		tbl.gen_search2(table);
+		
+		if (!table.isReadOnly()) {
+			tbl.gen_update(table);
+			tbl.gen_delete(table);
+			tbl.gen_merge(table, columns);
+			tbl.gen_insert(table, columns);
+			tbl.gen_insert2(table, columns);
+			tbl.gen_insertBatch(table, columns);
+		}
+		
+		// end class TABLE_Dao
+		tbl.write("	}\n");
 		
 		// class TABLE
 		dto.write("	public static class %s {", table.getName());
@@ -134,33 +173,6 @@ public class CodeGenerator {
 		}
 		dto.write("		}");
 		dto.write("	}\n");
-		
-		// class TABLE_Dao
-		tbl.write("	public static class %s_Dao extends Dao {", table.getName());
-		tbl.write("		private Connection cnx;");
-		
-		// enum Field
-		for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			tbl.write("		public final %s %s = new %s(\"%s\");", type.getFieldClassName(), col.getName().toLowerCase(), type.getFieldClassName(), col.getName());
-		}
-		tbl.write("		");
-		
-		tbl.gen_TABLE_Dao(table);
-		tbl.gen_search(table, columns);
-		tbl.gen_search2(table);
-		
-		if (!table.isReadOnly()) {
-			tbl.gen_update(table);
-			tbl.gen_delete(table);
-			tbl.gen_merge(table, columns);
-			tbl.gen_insert(table, columns);
-			tbl.gen_insert2(table, columns);
-			tbl.gen_insertBatch(table, columns);
-		}
-		
-		// end class TABLE_Dao
-		tbl.write("	}\n");
 		}
 		
 		// end class Tables
@@ -172,7 +184,6 @@ public class CodeGenerator {
 
 		tbl.close();
 		dto.close();
-		seq.close();
 	}
 
 	private class TablesGenerator extends Generator {
