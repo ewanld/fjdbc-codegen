@@ -93,58 +93,14 @@ public class CodeGenerator {
 
 		final Collection<TableDescriptor> tables = dbUtil.searchTables();
 
-		tbl.gen_header();
+		tbl.gen_header(tables);
 		dto.gen_header();
 
 		//@formatter:off
-		// class Dto
-		dto.write("public class Dto {");
-		
-		// class Tables
-		tbl.write("public class Tables {");
-		
-		// fields
-		for (final TableDescriptor table : tables) {
-			tbl.write("	public final %s_Dao %s;", table.getName(), table.getName().toLowerCase());
-		}
-		tbl.write("	");
-		
-		// constructor Tables
-		tbl.write("	public Tables(Connection cnx) {");
-		for (final TableDescriptor table : tables) {
-			tbl.write("		%s = new %s_Dao(cnx);", table.getName().toLowerCase(), table.getName());
-		}
-		tbl.write("	}");
-		
 		for (final TableDescriptor table : tables) {
 		final Collection<ColumnDescriptor> columns = dbUtil.searchColumns(table.getName());
 		
-		// class TABLE_Dao
-		tbl.write("	public static class %s_Dao extends Dao {", table.getName());
-		tbl.write("		private Connection cnx;");
-		
-		// enum Field
-		for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			tbl.write("		public final %s %s = new %s(\"%s\");", type.getFieldClassName(), col.getName().toLowerCase(), type.getFieldClassName(), col.getName());
-		}
-		tbl.write("		");
-		
-		tbl.gen_TABLE_Dao(table);
-		tbl.gen_search(table, columns);
-		tbl.gen_search2(table);
-		
-		if (!table.isReadOnly()) {
-			tbl.gen_update(table);
-			tbl.gen_delete(table);
-			tbl.gen_merge(table, columns);
-			tbl.gen_insert(table, columns);
-			tbl.gen_insert2(table, columns);
-			tbl.gen_insertBatch(table, columns);
-		}
-		
-		// end class TABLE_Dao
-		tbl.write("	}\n");
+		tbl.gen_DaoClass(table, columns);
 		
 		// class TABLE
 		dto.write("	public static class %s {", table.getName());
@@ -191,7 +147,37 @@ public class CodeGenerator {
 			super(wrapped);
 		}
 
-		public void gen_header() throws IOException {
+		public void gen_DaoClass(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
+			// class TABLE_Dao
+			write("	public static class %s_Dao extends Dao {", table.getName());
+			write("		private Connection cnx;");
+
+			// enum Field
+			for (final ColumnDescriptor col : columns) {
+				final JdbcType type = getJdbcType(col.getType());
+				write("		public final %s %s = new %s(\"%s\");", type.getFieldClassName(),
+						col.getName().toLowerCase(), type.getFieldClassName(), col.getName());
+			}
+			write("		");
+
+			gen_TABLE_Dao(table);
+			gen_search(table, columns);
+			gen_search2(table);
+
+			if (!table.isReadOnly()) {
+				gen_update(table);
+				gen_delete(table);
+				gen_merge(table, columns);
+				gen_insert(table, columns);
+				gen_insert2(table, columns);
+				gen_insertBatch(table, columns);
+			}
+
+			// end class TABLE_Dao
+			write("	}\n");
+		}
+
+		public void gen_header(Collection<TableDescriptor> tables) throws IOException {
 			write("package %s;", packageName);
 			write("");
 			write("import java.util.List;");
@@ -207,6 +193,22 @@ public class CodeGenerator {
 			write("import fjdbc.codegen.SqlExpr;");
 			write("import %s.Dto.*;", packageName);
 			write("");
+
+			// class Tables
+			write("public class Tables {");
+
+			// fields
+			for (final TableDescriptor table : tables) {
+				write("	public final %s_Dao %s;", table.getName(), table.getName().toLowerCase());
+			}
+			write("	");
+
+			// constructor Tables
+			write("	public Tables(Connection cnx) {");
+			for (final TableDescriptor table : tables) {
+				write("		%s = new %s_Dao(cnx);", table.getName().toLowerCase(), table.getName());
+			}
+			write("	}");
 		}
 
 		public void gen_insert2(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
@@ -466,6 +468,9 @@ public class CodeGenerator {
 		public void gen_header() throws IOException {
 			write("package %s;", packageName);
 			write("");
+
+			// class Dto
+			write("public class Dto {");
 		}
 	}
 
