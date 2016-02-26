@@ -26,12 +26,10 @@ public class CodeGenerator {
 	private final DbUtil dbUtil;
 	private final Map<Integer, JdbcType> jdbcTypeMap;
 	private final String packageName;
-	private final String outputDir;
 	private final String sourceDir;
 
 	public CodeGenerator(DbUtil dbUtil, String outputDir, String packageName) {
 		this.dbUtil = dbUtil;
-		this.outputDir = outputDir;
 		this.packageName = packageName;
 		sourceDir = outputDir + "/" + packageName.replace('.', '/');
 
@@ -90,27 +88,19 @@ public class CodeGenerator {
 	public void gen_DtoAndTables() throws SQLException, IOException {
 		final TablesGenerator tbl = new TablesGenerator(new FileWriter(sourceDir + "/Tables.java"));
 		final DtoGenerator dto = new DtoGenerator(new FileWriter(sourceDir + "/Dto.java"));
-
 		final Collection<TableDescriptor> tables = dbUtil.searchTables();
 
 		tbl.gen_header(tables);
 		dto.gen_header();
 
-		//@formatter:off
 		for (final TableDescriptor table : tables) {
-		final Collection<ColumnDescriptor> columns = dbUtil.searchColumns(table.getName());
-		
-		tbl.gen_DaoClass(table, columns);
-		
-		dto.gen_DtoClass(table, columns);
+			final Collection<ColumnDescriptor> columns = dbUtil.searchColumns(table.getName());
+			tbl.gen_DaoClass(table, columns);
+			dto.gen_DtoClass(table, columns);
 		}
-		
-		// end class Tables
-		tbl.write("}\n");
-		
-		// end class Dto
-		dto.write("}\n");
-		//@formatter:on
+
+		tbl.gen_footer();
+		dto.gen_footer();
 
 		tbl.close();
 		dto.close();
@@ -119,6 +109,10 @@ public class CodeGenerator {
 	private class TablesGenerator extends Generator {
 		public TablesGenerator(Writer wrapped) {
 			super(wrapped);
+		}
+
+		public void gen_footer() throws IOException {
+			write("}\n");
 		}
 
 		public void gen_DaoClass(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
@@ -437,6 +431,10 @@ public class CodeGenerator {
 	private class DtoGenerator extends Generator {
 		public DtoGenerator(Writer wrapped) {
 			super(wrapped);
+		}
+
+		public void gen_footer() throws IOException {
+			write("}\n");
 		}
 
 		public void gen_DtoClass(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
