@@ -60,9 +60,7 @@ public abstract class SqlExpr<T> extends SqlFragment {
 		return new SqlLiteralTimestamp(value);
 	}
 
-	public static SqlExpr<Timestamp> sysdate() {
-		return new SqlExprRaw<Timestamp>("sysdate");
-	}
+	public static final SqlExpr<Timestamp> sysdate = new SqlExprRaw<Timestamp>("sysdate");
 
 	public static final Function<String, SqlExpr<String>> lit_str = new Function<String, SqlExpr<String>>() {
 
