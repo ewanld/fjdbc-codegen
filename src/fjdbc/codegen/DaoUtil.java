@@ -720,11 +720,11 @@ public class DaoUtil {
 
 	}
 
-	public static class RawSqlExpr<T> extends SqlExpr<T> {
+	public static class SqlExprRaw<T> extends SqlExpr<T> {
 
 		private final String sql;
 
-		public RawSqlExpr(String sql) {
+		public SqlExprRaw(String sql) {
 			this.sql = sql;
 
 		}
@@ -738,7 +738,7 @@ public class DaoUtil {
 
 	public static class SqlExprFactory {
 		public static <T> SqlExpr<T> raw(String sql) {
-			return new RawSqlExpr<T>(sql);
+			return new SqlExprRaw<T>(sql);
 		}
 
 		public static SqlExpr<String> lit(String value) {
@@ -755,6 +755,10 @@ public class DaoUtil {
 
 		public static SqlExpr<Timestamp> lit(Timestamp value) {
 			return new SqlLiteralTimestamp(value);
+		}
+
+		public static SqlExpr<Timestamp> sysdate() {
+			return new SqlExprRaw<Timestamp>("sysdate");
 		}
 	}
 
@@ -822,8 +826,8 @@ public class DaoUtil {
 		public final SqlExpr<BigDecimal> currVal;
 
 		public DbSequence(String sequenceName) {
-			nextVal = new RawSqlExpr<BigDecimal>(sequenceName + ".nextval");
-			currVal = new RawSqlExpr<BigDecimal>(sequenceName + ".currval");
+			nextVal = new SqlExprRaw<BigDecimal>(sequenceName + ".nextval");
+			currVal = new SqlExprRaw<BigDecimal>(sequenceName + ".currval");
 		}
 
 	}
