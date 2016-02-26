@@ -81,7 +81,9 @@ public class CodeGenerator {
 	public void gen_Sequences() throws IOException, SQLException {
 		final SequencesGenerator seq = new SequencesGenerator(new FileWriter(sourceDir + "/Sequences.java"));
 		final Collection<SequenceDescriptor> sequences = dbUtil.searchSequences();
-		//seq.write(" public class Sequences");
+		seq.gen_header();
+		seq.gen_body(sequences);
+		seq.gen_footer();
 		seq.close();
 	}
 
@@ -480,6 +482,28 @@ public class CodeGenerator {
 	private class SequencesGenerator extends Generator {
 		public SequencesGenerator(Writer wrapped) {
 			super(wrapped);
+		}
+
+		public void gen_header() throws IOException {
+			write("package %s;\n", packageName);
+			write("import java.sql.Connection;\n");
+			write("import fjdbc.codegen.DaoUtil.DbSequence;\n");
+			write("public class Sequences {");
+			write("	private final Connection cnx;\n");
+			write("	public Sequences(Connection cnx) {");
+			write("		this.cnx = cnx;");
+			write("	}");
+		}
+
+		public void gen_body(Collection<SequenceDescriptor> sequences) throws IOException {
+			for (final SequenceDescriptor seq : sequences) {
+				write("	public DbSequence %s = new DbSequence(\"%s\");", seq.getName().toLowerCase(), seq.getName());
+			}
+		}
+
+		public void gen_footer() throws IOException {
+			write("}\n");
+
 		}
 	}
 
