@@ -366,18 +366,37 @@ public class CodeGenerator implements Closeable {
 			write_dao("		}");
 		}
 		
-		// method insertBatch
+		gen_insertBatch(table, columns);
+		
+		// end class TABLE_Dao
+		write_dao("	}\n");
+		}
+		
+		// end class Daos
+		write_dao("}\n");
+		
+		// end class Dto
+		write_dto("}\n");
+		//@formatter:on
+	}
+
+	private void gen_insertBatch(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
+			throws IOException {
+		final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
 		if (!table.isReadOnly()) {
 			write_dao("		public int[] insertBatch(Iterable<%s> _values) {", table.getName());
 			write_dao("			PreparedStatement st = null;");
-			write_dao("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(), StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
+			write_dao("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(),
+					StringUtils.join(colNames.iterator(), ", "),
+					StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
 			write_dao("			try {");
 			write_dao("				st = cnx.prepareStatement(sql);");
 			write_dao("				for (%s _value : _values) {", table.getName());
-			index = 1;
+			int index = 1;
 			for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			write_dao("					st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName().toLowerCase());
+				final JdbcType type = getJdbcType(col.getType());
+				write_dao("					st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName()
+						.toLowerCase());
 			}
 			write_dao("					st.addBatch();");
 			write_dao("				}");
@@ -391,17 +410,6 @@ public class CodeGenerator implements Closeable {
 			write_dao("			}");
 			write_dao("		}");
 		}
-		
-		// end class TABLE_Dao
-		write_dao("	}\n");
-		}
-		
-		// end class Daos
-		write_dao("}\n");
-		
-		// end class Dto
-		write_dto("}\n");
-		//@formatter:on
 	}
 
 	private static class JdbcType {
