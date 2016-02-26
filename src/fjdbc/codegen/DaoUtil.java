@@ -209,9 +209,9 @@ public class DaoUtil {
 	}
 
 	public static class ConditionStringIn extends ConditionSimple {
-		private final Collection<String> values;
+		private final Collection<SqlExpr<String>> values;
 
-		public ConditionStringIn(String fieldName, Collection<String> values) {
+		public ConditionStringIn(String fieldName, Collection<SqlExpr<String>> values) {
 			super(fieldName);
 			assert values != null;
 
@@ -220,7 +220,17 @@ public class DaoUtil {
 
 		@Override
 		public String toSql() {
-			return SqlUtils.in(fieldName, values);
+			if (values.size() == 0) return "1=0";
+
+			final List<String> values_str = Stream.of(values).map(SqlFragment.toSql).toList();
+			return values + " in (" + StringUtils.join(values_str.iterator(), ", ") + ")";
+		}
+
+		@Override
+		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
+			for (final SqlExpr<String> value : values) {
+				value.bind(st, parameterIndex);
+			}
 		}
 	}
 
@@ -292,8 +302,12 @@ public class DaoUtil {
 			super(name);
 		}
 
+		public Condition is(RelationalOperator operator, SqlExpr<BigDecimal> value) {
+			return new ConditionBigDecimalRelational(name, operator, value);
+		}
+
 		public Condition is(RelationalOperator operator, BigDecimal value) {
-			return new ConditionBigDecimalRelational(name, operator, SqlExpr.lit(value));
+			return is(operator, SqlExpr.lit(value));
 		}
 
 		public Condition eq(BigDecimal value) {
@@ -515,8 +529,12 @@ public class DaoUtil {
 			return new ConditionNull(name, false);
 		}
 
-		public Condition is(RelationalOperator operator, String value, boolean ignoreCase) {
+		public Condition is(RelationalOperator operator, SqlExpr<String> value, boolean ignoreCase) {
 			return new ConditionStringRelational(name, operator, value, ignoreCase);
+		}
+
+		public Condition is(RelationalOperator operator, String value, boolean ignoreCase) {
+			return is(operator, SqlExpr.lit(value), ignoreCase);
 		}
 
 		public Condition eq(String value) {
@@ -544,15 +562,15 @@ public class DaoUtil {
 		}
 
 		public ConditionStringIn in(Collection<String> values) {
-			return new ConditionStringIn(name, values);
+			return new ConditionStringIn(name, Stream.of(values).map(SqlExpr.lit_str).toList());
 		}
 
 		public Condition in(String... values) {
-			return new ConditionStringIn(name, Arrays.asList(values));
+			return new ConditionStringIn(name, Stream.of(values).map(SqlExpr.lit_str).toList());
 		}
 
 		public Condition like(String value, String escapeString) {
-			return new ConditionStringLike(name, value, escapeString);
+			return new ConditionStringLike(name, SqlExpr.lit(value), escapeString);
 		}
 
 		public Condition like(String value) {
