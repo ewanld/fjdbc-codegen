@@ -1,6 +1,5 @@
 package fjdbc.codegen;
 
-import java.io.Closeable;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -21,22 +20,21 @@ import com.github.stream4j.Stream;
 import fjdbc.codegen.DbUtil.ColumnDescriptor;
 import fjdbc.codegen.DbUtil.TableDescriptor;
 
-public class CodeGenerator implements Closeable {
+public class CodeGenerator {
 	private final DbUtil dbUtil;
-	private final Writer tables;
-	private final Writer dto;
 	private final Map<Integer, JdbcType> jdbcTypeMap;
 	private final String packageName;
+	private final String outputDir;
 
-	public CodeGenerator(DbUtil dbUtil, String outputDir, String packageName) throws IOException {
+	//writers
+	private Writer tables;
+	private Writer dto;
+	private Writer sequences;
+
+	public CodeGenerator(DbUtil dbUtil, String outputDir, String packageName) {
 		this.dbUtil = dbUtil;
+		this.outputDir = outputDir;
 		this.packageName = packageName;
-
-		final String sourceDir = outputDir + "/" + packageName.replace('.', '/');
-		new File(sourceDir).mkdirs();
-
-		this.tables = new FileWriter(sourceDir + "/Tables.java");
-		this.dto = new FileWriter(sourceDir + "/Dto.java");
 
 		// see http://www.tutorialspoint.com/jdbc/jdbc-data-types.htm
 		// see http://docs.oracle.com/javase/1.5.0/docs/guide/jdbc/getstart/mapping.html
@@ -112,6 +110,13 @@ public class CodeGenerator implements Closeable {
 	}
 
 	public void gen() throws SQLException, IOException {
+		final String sourceDir = outputDir + "/" + packageName.replace('.', '/');
+		new File(sourceDir).mkdirs();
+
+		this.tables = new FileWriter(sourceDir + "/Tables.java");
+		this.dto = new FileWriter(sourceDir + "/Dto.java");
+		this.sequences = new FileWriter(sourceDir + "/Sequences.java");
+
 		final Collection<TableDescriptor> _tables = dbUtil.searchTables();
 
 		gen_dao_header();
@@ -203,6 +208,10 @@ public class CodeGenerator implements Closeable {
 		// end class Dto
 		write_dto("}\n");
 		//@formatter:on
+
+		tables.close();
+		dto.close();
+		sequences.close();
 	}
 
 	private void gen_insert2(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
@@ -493,12 +502,6 @@ public class CodeGenerator implements Closeable {
 		public String getFieldClassName() {
 			return fieldClassName;
 		}
-	}
-
-	@Override
-	public void close() throws IOException {
-		tables.close();
-		dto.close();
 	}
 
 }
