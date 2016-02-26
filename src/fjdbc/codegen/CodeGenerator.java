@@ -27,10 +27,6 @@ public class CodeGenerator {
 	private final String packageName;
 	private final String outputDir;
 
-	//writers
-	private Writer dto;
-	private Writer sequences;
-
 	public CodeGenerator(DbUtil dbUtil, String outputDir, String packageName) {
 		this.dbUtil = dbUtil;
 		this.outputDir = outputDir;
@@ -67,17 +63,6 @@ public class CodeGenerator {
 		jdbcTypeMap = Stream.of(jdbcTypes).toMap(JdbcType.getJdbcType);
 	}
 
-	private void write_dto(String format, Object... args) throws IOException {
-		final String s = args.length == 0 ? format : String.format(format, args);
-		dto.write(s);
-		dto.write("\n");
-	}
-
-	public void gen_dto_header() throws IOException {
-		write_dto("package %s;", packageName);
-		write_dto("");
-	}
-
 	public JdbcType getJdbcType(int type) {
 		final JdbcType jdbcType = jdbcTypeMap.get(type);
 		if (jdbcType == null) System.out.println("Warning: unknown jdbc type: " + type);
@@ -90,17 +75,17 @@ public class CodeGenerator {
 		new File(sourceDir).mkdirs();
 
 		final TablesGenerator tbl = new TablesGenerator(new FileWriter(sourceDir + "/Tables.java"));
-		this.dto = new FileWriter(sourceDir + "/Dto.java");
-		this.sequences = new FileWriter(sourceDir + "/Sequences.java");
+		final DtoGenerator dtog = new DtoGenerator(new FileWriter(sourceDir + "/Dto.java"));
+		final SequencesGenerator seq = new SequencesGenerator(new FileWriter(sourceDir + "/Sequences.java"));
 
 		final Collection<TableDescriptor> _tables = dbUtil.searchTables();
 
 		tbl.gen_header();
-		gen_dto_header();
+		dtog.gen_header();
 
 		//@formatter:off
 		// class Dto
-		write_dto("public class Dto {");
+		dtog.write("public class Dto {");
 		
 		// class Tables
 		tbl.write("public class Tables {");
@@ -123,13 +108,13 @@ public class CodeGenerator {
 
 		
 		// class TABLE
-		write_dto("	public static class %s {", table.getName());
+		dtog.write("	public static class %s {", table.getName());
 		
 		// field column from class TABLE
 		for (final ColumnDescriptor col : columns) {
 		final JdbcType type = getJdbcType(col.getType());
 		if (type == null) throw new RuntimeException(String.format("Unknown type: %s", col.getType()));
-		write_dto("		public %s %s;", type.getJavaType(), col.getName().toLowerCase());
+		dtog.write("		public %s %s;", type.getJavaType(), col.getName().toLowerCase());
 		}
 		
 		// TABLE constructor
@@ -143,12 +128,12 @@ public class CodeGenerator {
 			}
 
 		}).toList();
-		write_dto("		public %s(%s) {", table.getName(), StringUtils.join(colDefs.iterator(), ", "));
+		dtog.write("		public %s(%s) {", table.getName(), StringUtils.join(colDefs.iterator(), ", "));
 		for (final ColumnDescriptor col : columns) {
-		write_dto("			this.%s = %s;", col.getName().toLowerCase(), col.getName().toLowerCase());
+			dtog.write("			this.%s = %s;", col.getName().toLowerCase(), col.getName().toLowerCase());
 		}
-		write_dto("		}");
-		write_dto("	}\n");
+		dtog.write("		}");
+		dtog.write("	}\n");
 		
 		// class TABLE_Dao
 		tbl.write("	public static class %s_Dao extends Dao {", table.getName());
@@ -182,12 +167,12 @@ public class CodeGenerator {
 		tbl.write("}\n");
 		
 		// end class Dto
-		write_dto("}\n");
+		dtog.write("}\n");
 		//@formatter:on
 
 		tbl.close();
-		dto.close();
-		sequences.close();
+		dtog.close();
+		seq.close();
 	}
 
 	private class TablesGenerator implements Closeable {
@@ -467,6 +452,43 @@ public class CodeGenerator {
 			write("			}");
 			write("		}");
 			//@formatter:on
+		}
+
+		@Override
+		public void close() throws IOException {
+			wrapped.close();
+		}
+	}
+
+	private class DtoGenerator implements Closeable {
+		private final Writer wrapped;
+
+		public DtoGenerator(Writer wrapped) {
+			this.wrapped = wrapped;
+		}
+
+		@Override
+		public void close() throws IOException {
+			wrapped.close();
+		}
+
+		private void write(String format, Object... args) throws IOException {
+			final String s = args.length == 0 ? format : String.format(format, args);
+			wrapped.write(s);
+			wrapped.write("\n");
+		}
+
+		public void gen_header() throws IOException {
+			write("package %s;", packageName);
+			write("");
+		}
+	}
+
+	private class SequencesGenerator implements Closeable {
+		private final Writer wrapped;
+
+		public SequencesGenerator(Writer wrapped) {
+			this.wrapped = wrapped;
 		}
 
 		@Override
