@@ -175,17 +175,9 @@ public class CodeGenerator {
 		seq.close();
 	}
 
-	private class TablesGenerator implements Closeable {
-		private final Writer wrapped;
-
+	private class TablesGenerator extends Generator {
 		public TablesGenerator(Writer wrapped) {
-			this.wrapped = wrapped;
-		}
-
-		public void write(String format, Object... args) throws IOException {
-			final String s = args.length == 0 ? format : String.format(format, args);
-			wrapped.write(s);
-			wrapped.write("\n");
+			super(wrapped);
 		}
 
 		public void gen_header() throws IOException {
@@ -453,29 +445,11 @@ public class CodeGenerator {
 			write("		}");
 			//@formatter:on
 		}
-
-		@Override
-		public void close() throws IOException {
-			wrapped.close();
-		}
 	}
 
-	private class DtoGenerator implements Closeable {
-		private final Writer wrapped;
-
+	private class DtoGenerator extends Generator {
 		public DtoGenerator(Writer wrapped) {
-			this.wrapped = wrapped;
-		}
-
-		@Override
-		public void close() throws IOException {
-			wrapped.close();
-		}
-
-		private void write(String format, Object... args) throws IOException {
-			final String s = args.length == 0 ? format : String.format(format, args);
-			wrapped.write(s);
-			wrapped.write("\n");
+			super(wrapped);
 		}
 
 		public void gen_header() throws IOException {
@@ -484,16 +458,28 @@ public class CodeGenerator {
 		}
 	}
 
-	private class SequencesGenerator implements Closeable {
+	private class SequencesGenerator extends Generator {
+		public SequencesGenerator(Writer wrapped) {
+			super(wrapped);
+		}
+	}
+
+	private abstract class Generator implements Closeable {
 		private final Writer wrapped;
 
-		public SequencesGenerator(Writer wrapped) {
+		public Generator(Writer wrapped) {
 			this.wrapped = wrapped;
 		}
 
 		@Override
-		public void close() throws IOException {
+		public final void close() throws IOException {
 			wrapped.close();
+		}
+
+		public final void write(String format, Object... args) throws IOException {
+			final String s = args.length == 0 ? format : String.format(format, args);
+			wrapped.write(s);
+			wrapped.write("\n");
 		}
 	}
 
