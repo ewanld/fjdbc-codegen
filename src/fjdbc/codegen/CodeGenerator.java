@@ -35,7 +35,7 @@ public class CodeGenerator implements Closeable {
 		final String sourceDir = outputDir + "/" + packageName.replace('.', '/');
 		new File(sourceDir).mkdirs();
 
-		this.dao = new FileWriter(sourceDir + "/Daos.java");
+		this.dao = new FileWriter(sourceDir + "/Tables.java");
 		this.dto = new FileWriter(sourceDir + "/Dto.java");
 
 		// see http://www.tutorialspoint.com/jdbc/jdbc-data-types.htm
@@ -113,7 +113,6 @@ public class CodeGenerator implements Closeable {
 
 	public void gen() throws SQLException, IOException {
 		final Collection<TableDescriptor> tables = dbUtil.searchTables();
-		int index = 0;
 
 		gen_dao_header();
 		gen_dto_header();
@@ -122,12 +121,12 @@ public class CodeGenerator implements Closeable {
 		// class Dto
 		write_dto("public class Dto {");
 		
-		// class Daos
-		write_dao("public class Daos {");
+		// class Tables
+		write_dao("public class Tables {");
 		write_dao("	");
 		
-		// constructor Daos
-		write_dao("	private Daos() {");
+		// constructor Tables
+		write_dao("	private Tables() {");
 		write_dao("		// prevent instanciation");
 		write_dao("	}");
 		
@@ -166,6 +165,7 @@ public class CodeGenerator implements Closeable {
 		// class TABLE_Dao
 		write_dao("	public static class %s_Dao extends Dao {", table.getName());
 		write_dao("		private Connection cnx;");
+		
 		// enum Field
 		for (final ColumnDescriptor col : columns) {
 			final JdbcType type = getJdbcType(col.getType());
@@ -173,13 +173,209 @@ public class CodeGenerator implements Closeable {
 		}
 		write_dao("		");
 		
-		// constructor TABLE_Dao
-		write_dao("		public %s_Dao(Connection cnx) {", table.getName());
-		write_dao("			super(cnx, \"%s\");", table.getName());
-		write_dao("			this.cnx = cnx;");
-		write_dao("		}\n");
+		gen_TABLE_Dao(table);
+		gen_search(table, columns);
+		gen_search2(table);
 		
-		// method search()
+		if (!table.isReadOnly()) {
+			gen_update(table);
+			gen_delete(table);
+			gen_merge(table, columns);
+			gen_insert(table, columns);
+			gen_insert2(table, columns);
+			gen_insertBatch(table, columns);
+		}
+		
+		// end class TABLE_Dao
+		write_dao("	}\n");
+		}
+		
+		// end class Tables
+		write_dao("}\n");
+		
+		// end class Dto
+		write_dto("}\n");
+		//@formatter:on
+	}
+
+	private void gen_insert2(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
+			throws IOException {
+		final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+
+		//@formatter:off
+		write_dao("		public int insert(");
+		boolean first = true;
+		for (final ColumnDescriptor col : columns) {
+		final JdbcType type = getJdbcType(col.getType());
+		write_dao("				%s SqlExpr<%s> _%s", first ? " " : ",", type.getJavaType(), col.getName().toLowerCase());
+		first = false;
+		}
+		write_dao("		) {");
+		write_dao("			PreparedStatement st = null;");
+		write_dao("			final StringBuilder sql = new StringBuilder(\"insert into %s(%s) values(\");", table.getName(), StringUtils.join(colNames.iterator(), ", "));
+		first = true;
+		for (final ColumnDescriptor col : columns) {
+		write_dao("			sql.%sappend(_%s.toSql());", first ? "" : "append(\", \").", col.getName().toLowerCase());
+		first = false;
+		}
+		write_dao("			sql.append(\")\");");
+		write_dao("			try {");
+		write_dao("				st = cnx.prepareStatement(sql.toString());");
+		write_dao("				Sequence parameterIndex = new Sequence(1);");
+		for (final ColumnDescriptor col : columns) {
+		write_dao("				_%s.bind(st, parameterIndex);", col.getName().toLowerCase());
+		}
+		write_dao("				final int nRows = st.executeUpdate();");
+		write_dao("				cnx.commit();");
+		write_dao("				return nRows;");
+		write_dao("			} catch (SQLException e) {");
+		write_dao("				throw new RuntimeException(e);");
+		write_dao("			} finally {");
+		write_dao("				DaoUtil.close(st);");
+		write_dao("			}");
+		write_dao("		}");
+		//@formatter:on
+	}
+
+	private void gen_insert(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
+			throws IOException {
+		final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+
+		//@formatter:off
+		write_dao("		public int insert(%s _value) {", table.getName());
+		write_dao("			PreparedStatement st = null;");
+		write_dao("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(), StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
+		write_dao("			try {");
+		write_dao("				st = cnx.prepareStatement(sql);");
+		int index = 1;
+		for (final ColumnDescriptor col : columns) {
+		final JdbcType type = getJdbcType(col.getType());
+		write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
+		}
+		write_dao("				final int nRows = st.executeUpdate();");
+		write_dao("				cnx.commit();");
+		write_dao("				return nRows;");
+		write_dao("			} catch (SQLException e) {");
+		write_dao("				throw new RuntimeException(e);");
+		write_dao("			} finally {");
+		write_dao("				DaoUtil.close(st);");
+		write_dao("			}");
+		write_dao("		}");
+		//@formatter:on
+	}
+
+	private void gen_merge(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
+			throws IOException {
+		final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+
+		Collection<ColumnDescriptor> pk = Stream.of(columns).filter(ColumnDescriptor.isPrimaryKey).toList();
+		if (pk.size() == 0) pk = columns;
+		final List<ColumnDescriptor> nonPk = Stream.of(columns).filter(ColumnDescriptor.isPrimaryKey.negate())
+				.toList();
+		final List<String> pkAssignments = Stream.of(pk).map(new Function<ColumnDescriptor, String>() {
+			@Override
+			public String apply(ColumnDescriptor t) {
+				return t.getName() + " = ?";
+			}
+		}).toList();
+		final List<String> nonPkAssignments = Stream.of(nonPk).map(new Function<ColumnDescriptor, String>() {
+			@Override
+			public String apply(ColumnDescriptor t) {
+				return t.getName() + " = ?";
+			}
+		}).toList();
+
+		//@formatter:off
+		write_dao("		public int merge(%s _value) {", table.getName());
+		write_dao("			final String sql =");
+		write_dao("				  \" merge into %s using dual on (%s)\"", table.getName(), StringUtils.join(pkAssignments.iterator(), " and "));
+		if (pk.size() < columns.size()) {
+		write_dao("				+ \" when matched then update set %s\"", StringUtils.join(nonPkAssignments.iterator(), ", "));
+		}
+		write_dao("				+ \" when not matched then insert (%s) values (%s)\";", StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
+		write_dao("			PreparedStatement st = null;");
+		write_dao("			try {");
+		write_dao("				st = cnx.prepareStatement(sql);");
+		int index = 1;
+		for (final ColumnDescriptor col : pk) {
+		final JdbcType type = getJdbcType(col.getType());
+		write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
+		}
+		if (pk.size() < columns.size()) {
+		for (final ColumnDescriptor col : nonPk) {
+		final JdbcType type = getJdbcType(col.getType());
+		write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
+		}
+		}
+		for (final ColumnDescriptor col : columns) {
+		final JdbcType type = getJdbcType(col.getType());
+		write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
+		}
+		write_dao("				final int nRows = st.executeUpdate();");
+		write_dao("				cnx.commit();");
+		write_dao("				return nRows;");
+		write_dao("			} catch (SQLException e) {");
+		write_dao("				throw new RuntimeException(e);");
+		write_dao("			} finally {");
+		write_dao("				DaoUtil.close(st);");
+		write_dao("			}");
+		write_dao("		}\n");
+		//@formatter:on
+	}
+
+	private void gen_delete(final TableDescriptor table) throws IOException {
+		//@formatter:off
+		write_dao("		public int delete(Condition condition) {");
+		write_dao("			int res = DaoUtil.delete(cnx, \"%s\", condition);", table.getName());
+		write_dao("			return res;");
+		write_dao("		}\n");
+		//@formatter:ofn
+	}
+
+	private void gen_update(final TableDescriptor table) throws IOException {
+		//@formatter:off
+		write_dao("		public int update(Collection<UpdateSetClause> updates, Condition condition) {", table.getName());
+		write_dao("			assert updates != null;");
+		write_dao("			assert updates.size() >= 1;");
+		write_dao("			PreparedStatement st = null;");
+		write_dao("			final StringBuilder sql = new StringBuilder();");
+		write_dao("			sql.append(\"update %s set \");", table.getName());
+		write_dao("			final List<String> updates_str = Stream.of(updates).map(SqlFragment.toSql).toList();");
+		write_dao("			sql.append(DaoUtil.join(updates_str.iterator(), \", \"));");
+		write_dao("			if (condition != null) sql.append(\" where \").append(condition.toSql());");
+		write_dao("			final Sequence parameterIndex = new Sequence(1);");
+		write_dao("			try {");
+		write_dao("				st = cnx.prepareStatement(sql.toString());", table.getName());
+		write_dao("				for (UpdateSetClause update : updates) {");
+		write_dao("					update.bind(st, parameterIndex);");
+		write_dao("				}");
+		write_dao("				if (condition != null) condition.bind(st, parameterIndex);", table.getName());
+		write_dao("				final int nRows = st.executeUpdate();");
+		write_dao("				cnx.commit();");
+		write_dao("				return nRows;");
+		write_dao("			} catch (SQLException e) {");
+		write_dao("				throw new RuntimeException(e);");
+		write_dao("			} finally {");
+		write_dao("				DaoUtil.close(st);");
+		write_dao("			}");
+		write_dao("		}\n");
+		//@formatter:on
+	}
+
+	private void gen_search2(final TableDescriptor table) throws IOException {
+		//@formatter:off
+		write_dao("		public List<%s> search(Condition condition, Collection<OrderByClause> orderBy) {", table.getName(), table.getName(), table.getName());
+		write_dao("			List<%s> res = new ArrayList<%s>();", table.getName(), table.getName());
+		write_dao("			search(condition, orderBy, DaoUtil.toList(res));");
+		write_dao("			return res;");
+		write_dao("		}\n");
+		//@formatter:on
+	}
+
+	private void gen_search(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
+			throws IOException {
+		final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+		//@formatter:off
 		write_dao("		public void search(Condition condition, Collection<OrderByClause> orderBy, Consumer<%s> callback) {", table.getName(), table.getName(), table.getName());
 		write_dao("			PreparedStatement st = null;");
 		write_dao("			final StringBuilder query = new StringBuilder();");
@@ -199,7 +395,6 @@ public class CodeGenerator implements Closeable {
 		final JdbcType type = getJdbcType(col.getType());
 		write_dao("					final %-10s %-20s = rs.%-13s(\"%s\");", type.getJavaType(), col.getName(), type.getGetterMethodName(), col.getName());
 		}
-		final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
 		write_dao("					final %s obj = new %s(%s);", table.getName(), table.getName(), StringUtils.join(colNames.iterator(), ", "));
 		write_dao("					callback.accept(obj);");
 		write_dao("				}");
@@ -210,206 +405,45 @@ public class CodeGenerator implements Closeable {
 		write_dao("				DaoUtil.close(st);");
 		write_dao("			}");
 		write_dao("		}\n");
-		
-		// method search(Condition)
-		write_dao("		public List<%s> search(Condition condition, Collection<OrderByClause> orderBy) {", table.getName(), table.getName(), table.getName());
-		write_dao("			List<%s> res = new ArrayList<%s>();", table.getName(), table.getName());
-		write_dao("			search(condition, orderBy, DaoUtil.toList(res));");
-		write_dao("			return res;");
+		//@formatter:on
+	}
+
+	private void gen_TABLE_Dao(final TableDescriptor table) throws IOException {
+		//@formatter:off
+		write_dao("		public %s_Dao(Connection cnx) {", table.getName());
+		write_dao("			super(cnx, \"%s\");", table.getName());
+		write_dao("			this.cnx = cnx;");
 		write_dao("		}\n");
-		
-		// method update
-		if (!table.isReadOnly()) {
-			write_dao("		public int update(Collection<UpdateSetClause> updates, Condition condition) {", table.getName());
-			write_dao("			assert updates != null;");
-			write_dao("			assert updates.size() >= 1;");
-			write_dao("			PreparedStatement st = null;");
-			write_dao("			final StringBuilder sql = new StringBuilder();");
-			write_dao("			sql.append(\"update %s set \");", table.getName());
-			write_dao("			final List<String> updates_str = Stream.of(updates).map(SqlFragment.toSql).toList();");
-			write_dao("			sql.append(DaoUtil.join(updates_str.iterator(), \", \"));");
-			write_dao("			if (condition != null) sql.append(\" where \").append(condition.toSql());");
-			write_dao("			final Sequence parameterIndex = new Sequence(1);");
-			write_dao("			try {");
-			write_dao("				st = cnx.prepareStatement(sql.toString());", table.getName());
-			write_dao("				for (UpdateSetClause update : updates) {");
-			write_dao("					update.bind(st, parameterIndex);");
-			write_dao("				}");
-			write_dao("				if (condition != null) condition.bind(st, parameterIndex);", table.getName());
-			write_dao("				final int nRows = st.executeUpdate();");
-			write_dao("				cnx.commit();");
-			write_dao("				return nRows;");
-			write_dao("			} catch (SQLException e) {");
-			write_dao("				throw new RuntimeException(e);");
-			write_dao("			} finally {");
-			write_dao("				DaoUtil.close(st);");
-			write_dao("			}");
-			write_dao("		}\n");
-		}
-		
-		// method delete
-		if (!table.isReadOnly()) {
-			write_dao("		public int delete(Condition condition) {");
-			write_dao("			int res = DaoUtil.delete(cnx, \"%s\", condition);", table.getName());
-			write_dao("			return res;");
-			write_dao("		}\n");
-		}
-		
-		// method merge
-		if (!table.isReadOnly()) {
-			Collection<ColumnDescriptor> pk = Stream.of(columns).filter(ColumnDescriptor.isPrimaryKey).toList();
-			if (pk.size() == 0) pk = columns;
-			final List<ColumnDescriptor> nonPk = Stream.of(columns).filter(ColumnDescriptor.isPrimaryKey.negate()).toList();
-			final List<String> pkAssignments = Stream.of(pk).map(new Function<ColumnDescriptor, String>() {
-				@Override
-				public String apply(ColumnDescriptor t) {
-					return t.getName() + " = ?";
-				}
-			}).toList();
-			final List<String> nonPkAssignments = Stream.of(nonPk).map(new Function<ColumnDescriptor, String>() {
-				@Override
-				public String apply(ColumnDescriptor t) {
-					return t.getName() + " = ?";
-				}
-			}).toList();
-			write_dao("		public int merge(%s _value) {", table.getName());
-			write_dao("			final String sql =");
-			write_dao("				  \" merge into %s using dual on (%s)\"", table.getName(), StringUtils.join(pkAssignments.iterator(), " and "));
-			if (pk.size() < columns.size()) {
-			write_dao("				+ \" when matched then update set %s\"", StringUtils.join(nonPkAssignments.iterator(), ", "));
-			}
-			write_dao("				+ \" when not matched then insert (%s) values (%s)\";", StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
-			write_dao("			PreparedStatement st = null;");
-			write_dao("			try {");
-			write_dao("				st = cnx.prepareStatement(sql);");
-			index = 1;
-			for (final ColumnDescriptor col : pk) {
-			final JdbcType type = getJdbcType(col.getType());
-			write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName().toLowerCase());
-			}
-			if (pk.size() < columns.size()) {
-			for (final ColumnDescriptor col : nonPk) {
-			final JdbcType type = getJdbcType(col.getType());
-			write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName().toLowerCase());
-			}
-			}
-			for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName().toLowerCase());
-			}
-			write_dao("				final int nRows = st.executeUpdate();");
-			write_dao("				cnx.commit();");
-			write_dao("				return nRows;");
-			write_dao("			} catch (SQLException e) {");
-			write_dao("				throw new RuntimeException(e);");
-			write_dao("			} finally {");
-			write_dao("				DaoUtil.close(st);");
-			write_dao("			}");
-			write_dao("		}\n");
-		}
-		
-		// method insert
-		if (!table.isReadOnly()) {
-			write_dao("		public int insert(%s _value) {", table.getName());
-			write_dao("			PreparedStatement st = null;");
-			write_dao("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(), StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
-			write_dao("			try {");
-			write_dao("				st = cnx.prepareStatement(sql);");
-			index = 1;
-			for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			write_dao("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName().toLowerCase());
-			}
-			write_dao("				final int nRows = st.executeUpdate();");
-			write_dao("				cnx.commit();");
-			write_dao("				return nRows;");
-			write_dao("			} catch (SQLException e) {");
-			write_dao("				throw new RuntimeException(e);");
-			write_dao("			} finally {");
-			write_dao("				DaoUtil.close(st);");
-			write_dao("			}");
-			write_dao("		}");
-		}
-		
-		// method insert bis
-		if (!table.isReadOnly()) {
-			write_dao("		public int insert(");
-			boolean first = true;
-			for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			write_dao("				%s SqlExpr<%s> _%s", first ? " " : ",", type.getJavaType(), col.getName().toLowerCase());
-			first = false;
-			}
-			write_dao("		) {");
-			write_dao("			PreparedStatement st = null;");
-			write_dao("			final StringBuilder sql = new StringBuilder(\"insert into %s(%s) values(\");", table.getName(), StringUtils.join(colNames.iterator(), ", "));
-			first = true;
-			for (final ColumnDescriptor col : columns) {
-			write_dao("			sql.%sappend(_%s.toSql());", first ? "" : "append(\", \").", col.getName().toLowerCase());
-			first = false;
-			}
-			write_dao("			sql.append(\")\");");
-			write_dao("			try {");
-			write_dao("				st = cnx.prepareStatement(sql.toString());");
-			write_dao("				Sequence parameterIndex = new Sequence(1);");
-			for (final ColumnDescriptor col : columns) {
-			write_dao("				_%s.bind(st, parameterIndex);", col.getName().toLowerCase());
-			}
-			write_dao("				final int nRows = st.executeUpdate();");
-			write_dao("				cnx.commit();");
-			write_dao("				return nRows;");
-			write_dao("			} catch (SQLException e) {");
-			write_dao("				throw new RuntimeException(e);");
-			write_dao("			} finally {");
-			write_dao("				DaoUtil.close(st);");
-			write_dao("			}");
-			write_dao("		}");
-		}
-		
-		gen_insertBatch(table, columns);
-		
-		// end class TABLE_Dao
-		write_dao("	}\n");
-		}
-		
-		// end class Daos
-		write_dao("}\n");
-		
-		// end class Dto
-		write_dto("}\n");
 		//@formatter:on
 	}
 
 	private void gen_insertBatch(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
 			throws IOException {
 		final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
-		if (!table.isReadOnly()) {
-			write_dao("		public int[] insertBatch(Iterable<%s> _values) {", table.getName());
-			write_dao("			PreparedStatement st = null;");
-			write_dao("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(),
-					StringUtils.join(colNames.iterator(), ", "),
-					StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
-			write_dao("			try {");
-			write_dao("				st = cnx.prepareStatement(sql);");
-			write_dao("				for (%s _value : _values) {", table.getName());
-			int index = 1;
-			for (final ColumnDescriptor col : columns) {
-				final JdbcType type = getJdbcType(col.getType());
-				write_dao("					st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName()
-						.toLowerCase());
-			}
-			write_dao("					st.addBatch();");
-			write_dao("				}");
-			write_dao("				final int[] nRows = st.executeBatch();");
-			write_dao("				cnx.commit();");
-			write_dao("				return nRows;");
-			write_dao("			} catch (SQLException e) {");
-			write_dao("				throw new RuntimeException(e);");
-			write_dao("			} finally {");
-			write_dao("				DaoUtil.close(st);");
-			write_dao("			}");
-			write_dao("		}");
+		//@formatter:off
+		write_dao("		public int[] insertBatch(Iterable<%s> _values) {", table.getName());
+		write_dao("			PreparedStatement st = null;");
+		write_dao("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(), StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
+		write_dao("			try {");
+		write_dao("				st = cnx.prepareStatement(sql);");
+		write_dao("				for (%s _value : _values) {", table.getName());
+		int index = 1;
+		for (final ColumnDescriptor col : columns) {
+		final JdbcType type = getJdbcType(col.getType());
+		write_dao("					st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
 		}
+		write_dao("					st.addBatch();");
+		write_dao("				}");
+		write_dao("				final int[] nRows = st.executeBatch();");
+		write_dao("				cnx.commit();");
+		write_dao("				return nRows;");
+		write_dao("			} catch (SQLException e) {");
+		write_dao("				throw new RuntimeException(e);");
+		write_dao("			} finally {");
+		write_dao("				DaoUtil.close(st);");
+		write_dao("			}");
+		write_dao("		}");
+		//@formatter:on
 	}
 
 	private static class JdbcType {
