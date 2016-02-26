@@ -123,11 +123,18 @@ public class CodeGenerator implements Closeable {
 		
 		// class Tables
 		write_dao("public class Tables {");
+		
+		// fields
+		for (final TableDescriptor table : tables) {
+			write_dao("	public final %s_Dao %s;", table.getName(), table.getName().toLowerCase());
+		}
 		write_dao("	");
 		
 		// constructor Tables
-		write_dao("	private Tables() {");
-		write_dao("		// prevent instanciation");
+		write_dao("	public Tables(Connection cnx) {");
+		for (final TableDescriptor table : tables) {
+		write_dao("		%s = new %s_Dao(cnx);", table.getName().toLowerCase(), table.getName());
+		}
 		write_dao("	}");
 		
 		for (final TableDescriptor table : tables) {
