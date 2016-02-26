@@ -736,32 +736,6 @@ public class DaoUtil {
 
 	}
 
-	public static class SqlExprFactory {
-		public static <T> SqlExpr<T> raw(String sql) {
-			return new SqlExprRaw<T>(sql);
-		}
-
-		public static SqlExpr<String> lit(String value) {
-			return new SqlLiteralString(value);
-		}
-
-		public static SqlExpr<BigDecimal> lit(BigDecimal value) {
-			return new SqlLiteralBigDecimal(value);
-		}
-
-		public static SqlExpr<BigDecimal> lit(long value) {
-			return new SqlLiteralBigDecimal(new BigDecimal(value));
-		}
-
-		public static SqlExpr<Timestamp> lit(Timestamp value) {
-			return new SqlLiteralTimestamp(value);
-		}
-
-		public static SqlExpr<Timestamp> sysdate() {
-			return new SqlExprRaw<Timestamp>("sysdate");
-		}
-	}
-
 	public static class SqlLiteralBigDecimal extends SqlExpr<BigDecimal> {
 
 		private final BigDecimal value;
