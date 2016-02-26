@@ -75,17 +75,17 @@ public class CodeGenerator {
 		new File(sourceDir).mkdirs();
 
 		final TablesGenerator tbl = new TablesGenerator(new FileWriter(sourceDir + "/Tables.java"));
-		final DtoGenerator dtog = new DtoGenerator(new FileWriter(sourceDir + "/Dto.java"));
+		final DtoGenerator dto = new DtoGenerator(new FileWriter(sourceDir + "/Dto.java"));
 		final SequencesGenerator seq = new SequencesGenerator(new FileWriter(sourceDir + "/Sequences.java"));
 
 		final Collection<TableDescriptor> _tables = dbUtil.searchTables();
 
 		tbl.gen_header();
-		dtog.gen_header();
+		dto.gen_header();
 
 		//@formatter:off
 		// class Dto
-		dtog.write("public class Dto {");
+		dto.write("public class Dto {");
 		
 		// class Tables
 		tbl.write("public class Tables {");
@@ -108,13 +108,13 @@ public class CodeGenerator {
 
 		
 		// class TABLE
-		dtog.write("	public static class %s {", table.getName());
+		dto.write("	public static class %s {", table.getName());
 		
 		// field column from class TABLE
 		for (final ColumnDescriptor col : columns) {
 		final JdbcType type = getJdbcType(col.getType());
 		if (type == null) throw new RuntimeException(String.format("Unknown type: %s", col.getType()));
-		dtog.write("		public %s %s;", type.getJavaType(), col.getName().toLowerCase());
+		dto.write("		public %s %s;", type.getJavaType(), col.getName().toLowerCase());
 		}
 		
 		// TABLE constructor
@@ -128,12 +128,12 @@ public class CodeGenerator {
 			}
 
 		}).toList();
-		dtog.write("		public %s(%s) {", table.getName(), StringUtils.join(colDefs.iterator(), ", "));
+		dto.write("		public %s(%s) {", table.getName(), StringUtils.join(colDefs.iterator(), ", "));
 		for (final ColumnDescriptor col : columns) {
-			dtog.write("			this.%s = %s;", col.getName().toLowerCase(), col.getName().toLowerCase());
+			dto.write("			this.%s = %s;", col.getName().toLowerCase(), col.getName().toLowerCase());
 		}
-		dtog.write("		}");
-		dtog.write("	}\n");
+		dto.write("		}");
+		dto.write("	}\n");
 		
 		// class TABLE_Dao
 		tbl.write("	public static class %s_Dao extends Dao {", table.getName());
@@ -167,11 +167,11 @@ public class CodeGenerator {
 		tbl.write("}\n");
 		
 		// end class Dto
-		dtog.write("}\n");
+		dto.write("}\n");
 		//@formatter:on
 
 		tbl.close();
-		dtog.close();
+		dto.close();
 		seq.close();
 	}
 
