@@ -296,7 +296,7 @@ public class DaoUtil {
 
 	}
 
-	public static class FieldBigDecimal extends Field {
+	public static class FieldBigDecimal extends Field<BigDecimal> {
 
 		public FieldBigDecimal(String name) {
 			super(name);
@@ -416,7 +416,7 @@ public class DaoUtil {
 		}
 	}
 
-	public static class Field {
+	public static class Field<T> {
 		protected final String name;
 
 		public Field(String name) {
@@ -437,7 +437,7 @@ public class DaoUtil {
 
 	}
 
-	public static class FieldTimestamp extends Field {
+	public static class FieldTimestamp extends Field<Timestamp> {
 
 		public FieldTimestamp(String name) {
 			super(name);
@@ -515,7 +515,7 @@ public class DaoUtil {
 
 	}
 
-	public static class FieldString extends Field {
+	public static class FieldString extends Field<String> {
 
 		public FieldString(String name) {
 			super(name);
@@ -598,15 +598,15 @@ public class DaoUtil {
 	}
 
 	public static class OrderByClause {
-		private final Field field;
+		private final Field<?> field;
 		private final OrderByDirection direction;
 
-		public OrderByClause(Field field, OrderByDirection direction) {
+		public OrderByClause(Field<?> field, OrderByDirection direction) {
 			this.field = field;
 			this.direction = direction;
 		}
 
-		public OrderByClause(Field field) {
+		public OrderByClause(Field<?> field) {
 			this(field, OrderByDirection.ASC);
 		}
 

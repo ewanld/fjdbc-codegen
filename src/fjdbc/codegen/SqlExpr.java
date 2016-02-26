@@ -17,6 +17,7 @@ import fjdbc.codegen.DaoUtil.SqlLiteralTimestamp;
 
 public abstract class SqlExpr<T> extends SqlFragment {
 
+	@SuppressWarnings("unchecked")
 	public T fetch(Connection cnx) {
 		PreparedStatement st = null;
 		try {
