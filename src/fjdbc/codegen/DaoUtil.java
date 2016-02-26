@@ -154,10 +154,10 @@ public class DaoUtil {
 	}
 
 	public static class ConditionBigDecimalRelational extends ConditionSimple {
-		private final BigDecimal value;
+		private final SqlExpr<BigDecimal> value;
 		private final RelationalOperator operator;
 
-		public ConditionBigDecimalRelational(String fieldName, RelationalOperator operator, BigDecimal value) {
+		public ConditionBigDecimalRelational(String fieldName, RelationalOperator operator, SqlExpr<BigDecimal> value) {
 			super(fieldName);
 			assert operator != null;
 			assert value != null;
@@ -168,12 +168,12 @@ public class DaoUtil {
 
 		@Override
 		public String toSql() {
-			return String.format("%s %s ?", fieldName, operator.toSql());
+			return String.format("%s %s %s", fieldName, operator.toSql(), value.toSql());
 		}
 
 		@Override
 		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			st.setBigDecimal(parameterIndex.nextValue(), value);
+			value.bind(st, parameterIndex);
 		}
 	}
 
@@ -289,7 +289,7 @@ public class DaoUtil {
 		}
 
 		public Condition is(RelationalOperator operator, BigDecimal value) {
-			return new ConditionBigDecimalRelational(name, operator, value);
+			return new ConditionBigDecimalRelational(name, operator, SqlExpr.lit(value));
 		}
 
 		public Condition eq(BigDecimal value) {
