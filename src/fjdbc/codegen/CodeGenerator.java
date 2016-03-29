@@ -21,6 +21,7 @@ import com.github.stream4j.Stream;
 import fjdbc.codegen.DbUtil.ColumnDescriptor;
 import fjdbc.codegen.DbUtil.SequenceDescriptor;
 import fjdbc.codegen.DbUtil.TableDescriptor;
+import fjdbc.codegen.util.TypeUtils;
 
 public class CodeGenerator {
 	private final DbUtil dbUtil;
@@ -34,32 +35,46 @@ public class CodeGenerator {
 		sourceDir = outputDir + "/" + packageName.replace('.', '/');
 
 		// see http://www.tutorialspoint.com/jdbc/jdbc-data-types.htm
-		// see http://docs.oracle.com/javase/1.5.0/docs/guide/jdbc/getstart/mapping.html
+		// see
+		// http://docs.oracle.com/javase/1.5.0/docs/guide/jdbc/getstart/mapping.html
 		final Collection<JdbcType> jdbcTypes = new ArrayList<JdbcType>();
 		//@formatter:off
-        jdbcTypes.add(new JdbcType(Types.VARCHAR     , "String"              , "String"    , "FieldString"    ));
-        jdbcTypes.add(new JdbcType(Types.CHAR        , "String"              , "String"    , "FieldString"    ));
-        jdbcTypes.add(new JdbcType(Types.LONGNVARCHAR, "String"              , "String"    , "FieldString"    ));
-        jdbcTypes.add(new JdbcType(Types.BIT         , "boolean"             , "Boolean"   , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.NUMERIC     , "java.math.BigDecimal", "BigDecimal", "FieldBigDecimal"));
-        jdbcTypes.add(new JdbcType(Types.DECIMAL     , "java.math.BigDecimal", "BigDecimal", "FieldBigDecimal"));
-        jdbcTypes.add(new JdbcType(Types.TINYINT     , "byte"                , "Byte"      , "FieldBigDecimal"));
-        jdbcTypes.add(new JdbcType(Types.SMALLINT    , "short"               , "Short"     , "FieldBigDecimal"));
-        jdbcTypes.add(new JdbcType(Types.INTEGER     , "int"                 , "Int"       , "FieldBigDecimal"));
-        jdbcTypes.add(new JdbcType(Types.BIGINT      , "long"                , "Long"      , "FieldBigDecimal"));
-        jdbcTypes.add(new JdbcType(Types.REAL        , "float"               , "Float"     , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.DOUBLE      , "double"              , "Double"    , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.VARBINARY   , "byte[]"              , "Bytes"     , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.BINARY      , "byte[]"              , "Bytes"     , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.DATE        , "java.sql.Date"       , "Date"      , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.TIME        , "java.sql.Time"       , "Time"      , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.TIMESTAMP   , "java.sql.Timestamp"  , "Timestamp" , "FieldTimestamp" ));
-        jdbcTypes.add(new JdbcType(Types.CLOB        , "java.sql.Clob"       , "Clob"      , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.BLOB        , "java.sql.Blob"       , "Blob"      , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.ARRAY       , "java.sql.Array"      , "ARRAY"     , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.REF         , "java.sql.Ref"        , "Ref"       , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.STRUCT      , "java.sql.Struct"     , "Struct"    , "FieldString"    )); // TODO
-        jdbcTypes.add(new JdbcType(Types.OTHER       , "Object"              , "Object"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.VARCHAR                , "String"              , "String"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.CHAR                   , "String"              , "String"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.LONGVARCHAR            , "String"              , "String"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.NCHAR                  , "String"              , "String"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.NVARCHAR               , "String"              , "String"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.LONGNVARCHAR           , "String"              , "String"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.NCLOB                  , "String"              , "String"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.BIT                    , "boolean"             , "Boolean"   , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.BOOLEAN                , "boolean"             , "Boolean"   , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.NUMERIC                , "java.math.BigDecimal", "BigDecimal", "FieldBigDecimal"));
+        jdbcTypes.add(new JdbcType(Types.DECIMAL                , "java.math.BigDecimal", "BigDecimal", "FieldBigDecimal"));
+        jdbcTypes.add(new JdbcType(Types.TINYINT                , "byte"                , "Byte"      , "FieldBigDecimal"));
+        jdbcTypes.add(new JdbcType(Types.SMALLINT               , "short"               , "Short"     , "FieldBigDecimal"));
+        jdbcTypes.add(new JdbcType(Types.INTEGER                , "int"                 , "Int"       , "FieldBigDecimal"));
+        jdbcTypes.add(new JdbcType(Types.BIGINT                 , "long"                , "Long"      , "FieldBigDecimal"));
+        jdbcTypes.add(new JdbcType(Types.FLOAT                  , "float"               , "Float"     , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.REAL                   , "float"               , "Float"     , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.DOUBLE                 , "double"              , "Double"    , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.BINARY                 , "byte[]"              , "Bytes"     , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.VARBINARY              , "byte[]"              , "Bytes"     , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.LONGVARBINARY          , "byte[]"              , "Bytes"     , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.DATE                   , "java.sql.Date"       , "Date"      , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.TIME                   , "java.sql.Time"       , "Time"      , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.TIMESTAMP              , "java.sql.Timestamp"  , "Timestamp" , "FieldTimestamp" ));
+        jdbcTypes.add(new JdbcType(Types.CLOB                   , "java.sql.Clob"       , "Clob"      , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.BLOB                   , "java.sql.Blob"       , "Blob"      , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.ARRAY                  , "java.sql.Array"      , "ARRAY"     , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.REF                    , "java.sql.Ref"        , "Ref"       , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.STRUCT                 , "java.sql.Struct"     , "Struct"    , "FieldString"    )); // TODO
+        jdbcTypes.add(new JdbcType(Types.JAVA_OBJECT            , "Object"              , "Object"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.ROWID                  , "Object"              , "Object"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.SQLXML                 , "Object"              , "Object"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.REF_CURSOR             , "Object"              , "Object"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.TIME_WITH_TIMEZONE     , "Object"    , "Object"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.TIMESTAMP_WITH_TIMEZONE, "Object"    , "Object"    , "FieldString"    ));
+        jdbcTypes.add(new JdbcType(Types.OTHER                  , "Object"              , "Object"    , "FieldString"    ));
 		//@formatter:on
 		jdbcTypeMap = Stream.of(jdbcTypes).toMap(JdbcType.getJdbcType);
 	}
@@ -74,7 +89,7 @@ public class CodeGenerator {
 	public void gen() throws IOException, SQLException {
 		new File(sourceDir).mkdirs();
 		gen_DtoAndTables();
-		gen_Sequences();
+		// gen_Sequences();
 
 	}
 
@@ -134,7 +149,6 @@ public class CodeGenerator {
 
 			if (!table.isReadOnly()) {
 				gen_update(table);
-				gen_delete(table);
 				gen_merge(table, columns);
 				gen_insert(table, columns);
 				gen_insert2(table, columns);
@@ -153,11 +167,12 @@ public class CodeGenerator {
 			write("import java.sql.*;");
 			write("import com.github.stream4j.Consumer;");
 			write("import com.github.stream4j.Stream;");
-			write("import fjdbc.codegen.DaoUtil;");
-			write("import fjdbc.codegen.DaoUtil.*;");
-			write("import fjdbc.codegen.Condition;");
-			write("import fjdbc.codegen.SqlFragment;");
-			write("import fjdbc.codegen.SqlExpr;");
+			write("import fjdbc.Dao;");
+			write("import fjdbc.DaoUtil;");
+			write("import fjdbc.DaoUtil.*;");
+			write("import fjdbc.Condition;");
+			write("import fjdbc.SqlFragment;");
+			write("import fjdbc.SqlExpr;");
 			write("import %s.Dto.*;", packageName);
 			write("");
 
@@ -187,7 +202,7 @@ public class CodeGenerator {
 			boolean first = true;
 			for (final ColumnDescriptor col : columns) {
 			final JdbcType type = getJdbcType(col.getType());
-			write("				%s SqlExpr<%s> _%s", first ? " " : ",", type.getJavaType(), col.getName().toLowerCase());
+			write("				%s SqlExpr<%s> _%s", first ? " " : ",", type.getJavaClassName(), col.getName().toLowerCase());
 			first = false;
 			}
 			write("		) {");
@@ -301,15 +316,6 @@ public class CodeGenerator {
 			write("			}");
 			write("		}\n");
 			//@formatter:on
-		}
-
-		public void gen_delete(final TableDescriptor table) throws IOException {
-			//@formatter:off
-			write("		public int delete(Condition condition) {");
-			write("			int res = DaoUtil.delete(cnx, \"%s\", condition);", table.getName());
-			write("			return res;");
-			write("		}\n");
-			//@formatter:ofn
 		}
 
 		public void gen_update(final TableDescriptor table) throws IOException {
@@ -483,7 +489,7 @@ public class CodeGenerator {
 		public void gen_header() throws IOException {
 			write("package %s;\n", packageName);
 			write("import java.sql.Connection;\n");
-			write("import fjdbc.codegen.DaoUtil.DbSequence;\n");
+			write("import fjdbc.DaoUtil.DbSequence;\n");
 			write("public class Sequences {");
 			write("	private final Connection cnx;\n");
 			write("	public Sequences(Connection cnx) {");
@@ -541,6 +547,11 @@ public class CodeGenerator {
 
 		public String getJavaType() {
 			return javaType;
+		}
+
+		public String getJavaClassName() {
+			final Class<?> wrapper = TypeUtils.getPrimitiveWrapper(javaType);
+			return wrapper == null ? javaType : wrapper.getSimpleName();
 		}
 
 		public static final Function<JdbcType, Integer> getJdbcType = new Function<JdbcType, Integer>() {

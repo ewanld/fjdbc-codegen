@@ -37,9 +37,8 @@ public class DbUtil {
 	}
 
 	private void checkUser() {
-		if (userName.toLowerCase().endsWith("_qa_ref")) {
-			throw new IllegalArgumentException(String.format("Execution with schema %s forbidden!", userName));
-		}
+		if (userName.toLowerCase().endsWith("_qa_ref")) { throw new IllegalArgumentException(
+				String.format("Execution with schema %s forbidden!", userName)); }
 
 	}
 
@@ -164,24 +163,30 @@ public class DbUtil {
 		private final int nullable;
 		private final String typeName;
 		private final String className;
+		private final boolean autoIncrement;
 
 		/**
 		 * @param name
-		 * @param type Value from java.sql.Types.
+		 * @param type
+		 *            Value from java.sql.Types.
 		 * @param primaryKey
-		 * @param nullable the nullability status of the given column; one of ResultSetMetaData.columnNoNulls,
-		 *        columnNullable or columnNullableUnknown.
+		 * @param nullable
+		 *            the nullability status of the given column; one of
+		 *            ResultSetMetaData.columnNoNulls, columnNullable or
+		 *            columnNullableUnknown.
 		 * @param className
 		 * @param typeName
+		 * @param autoIncrement
 		 */
 		public ColumnDescriptor(String name, int type, boolean primaryKey, int nullable, String typeName,
-				String className) {
+				String className, boolean autoIncrement) {
 			this.name = name;
 			this.type = type;
 			this.primaryKey = primaryKey;
 			this.nullable = nullable;
 			this.typeName = typeName;
 			this.className = className;
+			this.autoIncrement = autoIncrement;
 		}
 
 		public String getName() {
@@ -226,6 +231,10 @@ public class DbUtil {
 		public String getClassName() {
 			return className;
 		}
+
+		public boolean isAutoIncrement() {
+			return autoIncrement;
+		}
 	}
 
 	public Collection<ColumnDescriptor> searchColumns(String tableName) throws SQLException {
@@ -235,12 +244,14 @@ public class DbUtil {
 		final Collection<ColumnDescriptor> res = new ArrayList<ColumnDescriptor>();
 
 		while (rs.next()) {
-			final int columnType = rs.getInt(5);
-			final String typeName = rs.getString(6);
-			final String columnName = rs.getString(4);
-			final int nullable = rs.getInt(11);
+			final int columnType = rs.getInt("DATA_TYPE");
+			final String typeName = rs.getString("TYPE_NAME");
+			final String columnName = rs.getString("COLUMN_NAME");
+			final String dataType = rs.getString("DATA_TYPE");
+			final int nullable = rs.getInt("NULLABLE");
+			final boolean autoIncrement = rs.getString("IS_AUTOINCREMENT").equals("YES");
 			final boolean pk = primaryKeys.contains(columnName);
-			res.add(new ColumnDescriptor(columnName, columnType, pk, nullable, typeName, ""));
+			res.add(new ColumnDescriptor(columnName, columnType, pk, nullable, typeName, "", autoIncrement));
 		}
 		return res;
 	}
@@ -299,7 +310,7 @@ public class DbUtil {
 		final ResultSetMetaData metaData = rs.getMetaData();
 		final int nCols = metaData.getColumnCount();
 
-		//write header row
+		// write header row
 		final List<String> columnNames = new ArrayList<String>(nCols);
 		for (int i = 0; i < nCols; i++) {
 			final String columnName = metaData.getColumnName(i + 1);
@@ -307,7 +318,7 @@ public class DbUtil {
 		}
 		csvWriter.writeRow(columnNames.toArray(new String[0]));
 
-		//write other rows
+		// write other rows
 		while (rs.next()) {
 			final List<String> objs = new ArrayList<String>(nCols);
 			for (int i = 0; i < nCols; i++) {

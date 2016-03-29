@@ -1,4 +1,4 @@
-package fjdbc.codegen;
+package fjdbc;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -9,11 +9,10 @@ import java.sql.Timestamp;
 
 import com.github.stream4j.Function;
 
-import fjdbc.codegen.DaoUtil.Sequence;
-import fjdbc.codegen.DaoUtil.SqlExprRaw;
-import fjdbc.codegen.DaoUtil.SqlLiteralBigDecimal;
-import fjdbc.codegen.DaoUtil.SqlLiteralString;
-import fjdbc.codegen.DaoUtil.SqlLiteralTimestamp;
+import fjdbc.DaoUtil.SqlExprRaw;
+import fjdbc.DaoUtil.SqlLiteralBigDecimal;
+import fjdbc.DaoUtil.SqlLiteralString;
+import fjdbc.DaoUtil.SqlLiteralTimestamp;
 
 public abstract class SqlExpr<T> extends SqlFragment {
 
@@ -23,7 +22,7 @@ public abstract class SqlExpr<T> extends SqlFragment {
 		try {
 			try {
 				st = cnx.prepareStatement(String.format("select %s from dual", toSql()));
-				bind(st, new Sequence(1));
+				bind(st, new DaoUtil.Sequence(1));
 				final ResultSet rs = st.executeQuery();
 				rs.next();
 				final Object obj = rs.getObject(1);

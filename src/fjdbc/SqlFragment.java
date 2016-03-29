@@ -1,11 +1,11 @@
-package fjdbc.codegen;
+package fjdbc;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
 import com.github.stream4j.Function;
 
-import fjdbc.codegen.DaoUtil.Sequence;
+import fjdbc.DaoUtil.Sequence;
 
 public abstract class SqlFragment {
 	public abstract String toSql();
@@ -17,7 +17,7 @@ public abstract class SqlFragment {
 
 	@SuppressWarnings("unused")
 	public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-		//do nothing
+		// do nothing
 	}
 
 	public static final Function<SqlFragment, String> toSql = new Function<SqlFragment, String>() {
