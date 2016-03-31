@@ -192,18 +192,10 @@ public class CodeGenerator {
 		public void gen_header(Collection<TableDescriptor> tables) throws IOException {
 			write("package %s;", packageName);
 			write("");
-			write("import java.util.List;");
-			write("import java.util.Collection;");
 			write("import java.sql.*;");
-			write("import java.util.function.Consumer;");
-			write("import java.util.stream.Stream;");
-			write("import java.util.stream.Collectors;");
 			write("import fjdbc.Dao;");
+			write("import fjdbc.Sequence;");
 			write("import fjdbc.DaoUtil;");
-			write("import fjdbc.DaoUtil.*;");
-			write("import fjdbc.Condition;");
-			write("import fjdbc.SqlFragment;");
-			write("import fjdbc.SqlExpr;");
 			write("import com.github.fjdbc.query.*;");
 			write("import com.github.fjdbc.*;");
 			write("import com.github.fjdbc.op.*;");
@@ -466,6 +458,7 @@ public class CodeGenerator {
 			write("package %s;\n", packageName);
 			write("import java.sql.Connection;\n");
 			write("import fjdbc.DaoUtil.DbSequence;\n");
+
 			write("public class Sequences {");
 			write("	private final Connection cnx;\n");
 			write("	public Sequences(Connection cnx) {");

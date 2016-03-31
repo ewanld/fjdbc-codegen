@@ -3,8 +3,6 @@ package fjdbc;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
-import fjdbc.DaoUtil.Sequence;
-
 public abstract class SqlFragment {
 	public abstract String toSql();
 
