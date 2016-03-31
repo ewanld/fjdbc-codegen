@@ -14,11 +14,9 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 
 import org.apache.log4j.Logger;
-
-import com.github.stream4j.Function;
-import com.github.stream4j.Predicate;
 
 import fjdbc.codegen.util.CsvWriter;
 import fjdbc.codegen.util.SqlUtils;
@@ -212,14 +210,6 @@ public class DbUtil {
 			return primaryKey;
 		}
 
-		public static final Predicate<ColumnDescriptor> isPrimaryKey = new Predicate<ColumnDescriptor>() {
-
-			@Override
-			public boolean test(ColumnDescriptor t) {
-				return t.isPrimaryKey();
-			}
-		};
-
 		public int getNullable() {
 			return nullable;
 		}
@@ -247,7 +237,6 @@ public class DbUtil {
 			final int columnType = rs.getInt("DATA_TYPE");
 			final String typeName = rs.getString("TYPE_NAME");
 			final String columnName = rs.getString("COLUMN_NAME");
-			final String dataType = rs.getString("DATA_TYPE");
 			final int nullable = rs.getInt("NULLABLE");
 			final boolean autoIncrement = rs.getString("IS_AUTOINCREMENT").equals("YES");
 			final boolean pk = primaryKeys.contains(columnName);
@@ -337,7 +326,7 @@ public class DbUtil {
 			csvWriter.writeRow(objs.toArray(new String[0]));
 		}
 
-		csvWriter.flush();
+		csvWriter.close();
 	}
 
 	public void writeAllTablesToCsv(String outputDir) throws SQLException, IOException {

@@ -11,12 +11,11 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
-
-import com.github.stream4j.Consumer;
-import com.github.stream4j.Function;
-import com.github.stream4j.Stream;
 
 import fjdbc.codegen.util.SqlUtils;
 
@@ -41,7 +40,7 @@ public class DaoUtil {
 		}
 	}
 
-	public abstract static class ConditionSimple extends Condition {
+	public abstract static class ConditionSimple<DTO> extends Condition<DTO> {
 		protected final String fieldName;
 
 		public ConditionSimple(String fieldName) {
@@ -65,7 +64,7 @@ public class DaoUtil {
 		}
 	}
 
-	public static class ConditionStringRelational extends ConditionSimple {
+	public static class ConditionStringRelational<DTO> extends ConditionSimple<DTO> {
 		private final SqlExpr<String> value;
 		private final RelationalOperator operator;
 		private final boolean ignoreCase;
@@ -93,7 +92,7 @@ public class DaoUtil {
 		}
 	}
 
-	public static class ConditionNull extends ConditionSimple {
+	public static class ConditionNull<DTO> extends ConditionSimple<DTO> {
 		private final boolean isNull;
 
 		public ConditionNull(String fieldName, boolean isNull) {
@@ -108,7 +107,7 @@ public class DaoUtil {
 
 	}
 
-	public static class ConditionBigDecimalRelational extends ConditionSimple {
+	public static class ConditionBigDecimalRelational<DTO> extends ConditionSimple<DTO> {
 		private final SqlExpr<BigDecimal> value;
 		private final RelationalOperator operator;
 
@@ -132,7 +131,7 @@ public class DaoUtil {
 		}
 	}
 
-	public static class ConditionStringLike extends ConditionSimple {
+	public static class ConditionStringLike<DTO> extends ConditionSimple<DTO> {
 		private final SqlExpr<String> value;
 		private final String escapeString;
 
@@ -163,7 +162,7 @@ public class DaoUtil {
 		}
 	}
 
-	public static class ConditionStringIn extends ConditionSimple {
+	public static class ConditionStringIn<DTO> extends ConditionSimple<DTO> {
 		private final Collection<SqlExpr<String>> values;
 
 		public ConditionStringIn(String fieldName, Collection<SqlExpr<String>> values) {
@@ -177,7 +176,7 @@ public class DaoUtil {
 		public String toSql() {
 			if (values.size() == 0) return "1=0";
 
-			final List<String> values_str = Stream.of(values).map(SqlFragment.toSql).toList();
+			final List<String> values_str = values.stream().map(SqlFragment::toSql).collect(Collectors.toList());
 			return values + " in (" + StringUtils.join(values_str.iterator(), ", ") + ")";
 		}
 
@@ -189,7 +188,7 @@ public class DaoUtil {
 		}
 	}
 
-	public static class ConditionBigDecimalIn extends ConditionSimple {
+	public static class ConditionBigDecimalIn<DTO> extends ConditionSimple<DTO> {
 		private final Collection<BigDecimal> values;
 
 		public ConditionBigDecimalIn(String fieldName, Collection<BigDecimal> values) {
@@ -209,13 +208,13 @@ public class DaoUtil {
 
 		@Override
 		public String toSql() {
-			final List<String> values_str = Stream.of(values).map(toPlainString).toList();
+			final List<String> values_str = values.stream().map(toPlainString).collect(Collectors.toList());
 			final String res = String.format("%s in (%s)", fieldName, StringUtils.join(values_str.iterator(), ", "));
 			return res;
 		}
 	}
 
-	public static class ConditionTimestampRelational extends ConditionSimple {
+	public static class ConditionTimestampRelational<DTO> extends ConditionSimple<DTO> {
 		private final RelationalOperator operator;
 		private final Timestamp value;
 
@@ -251,82 +250,82 @@ public class DaoUtil {
 
 	}
 
-	public static class FieldBigDecimal extends Field<BigDecimal> {
+	public static class FieldBigDecimal<DTO> extends Field<BigDecimal, DTO> {
 
 		public FieldBigDecimal(String name) {
 			super(name);
 		}
 
-		public Condition is(RelationalOperator operator, SqlExpr<BigDecimal> value) {
-			return new ConditionBigDecimalRelational(name, operator, value);
+		public Condition<DTO> is(RelationalOperator operator, SqlExpr<BigDecimal> value) {
+			return new ConditionBigDecimalRelational<>(name, operator, value);
 		}
 
-		public Condition is(RelationalOperator operator, BigDecimal value) {
+		public Condition<DTO> is(RelationalOperator operator, BigDecimal value) {
 			return is(operator, SqlExpr.lit(value));
 		}
 
-		public Condition eq(BigDecimal value) {
+		public Condition<DTO> eq(BigDecimal value) {
 			return is(RelationalOperator.EQ, value);
 		}
 
-		public Condition notEq(BigDecimal value) {
+		public Condition<DTO> notEq(BigDecimal value) {
 			return is(RelationalOperator.NOT_EQ, value);
 		}
 
-		public Condition gt(BigDecimal value) {
+		public Condition<DTO> gt(BigDecimal value) {
 			return is(RelationalOperator.GT, value);
 		}
 
-		public Condition gte(BigDecimal value) {
+		public Condition<DTO> gte(BigDecimal value) {
 			return is(RelationalOperator.GTE, value);
 		}
 
-		public Condition lt(BigDecimal value) {
+		public Condition<DTO> lt(BigDecimal value) {
 			return is(RelationalOperator.LT, value);
 		}
 
-		public Condition lte(BigDecimal value) {
+		public Condition<DTO> lte(BigDecimal value) {
 			return is(RelationalOperator.LTE, value);
 		}
 
-		public Condition in(BigDecimal... values) {
-			return new ConditionBigDecimalIn(name, Arrays.asList(values));
+		public Condition<DTO> in(BigDecimal... values) {
+			return new ConditionBigDecimalIn<>(name, Arrays.asList(values));
 		}
 
-		public Condition eq(long value) {
+		public Condition<DTO> eq(long value) {
 			return eq(new BigDecimal(value));
 		}
 
-		public Condition notEq(long value) {
+		public Condition<DTO> notEq(long value) {
 			return notEq(new BigDecimal(value));
 		}
 
-		public Condition gt(long value) {
+		public Condition<DTO> gt(long value) {
 			return gt(new BigDecimal(value));
 		}
 
-		public Condition gte(long value) {
+		public Condition<DTO> gte(long value) {
 			return gte(new BigDecimal(value));
 		}
 
-		public Condition lt(long value) {
+		public Condition<DTO> lt(long value) {
 			return lt(new BigDecimal(value));
 		}
 
-		public Condition lte(long value) {
+		public Condition<DTO> lte(long value) {
 			return lte(new BigDecimal(value));
 		}
 
-		public Condition is(RelationalOperator operator, long value) {
+		public Condition<DTO> is(RelationalOperator operator, long value) {
 			return is(operator, new BigDecimal(value));
 		}
 
-		public Condition in(long... values) {
+		public Condition<DTO> in(long... values) {
 			final Collection<BigDecimal> values_big = new ArrayList<BigDecimal>(values.length);
 			for (final long v : values) {
 				values_big.add(new BigDecimal(v));
 			}
-			return new ConditionBigDecimalIn(name, values_big);
+			return new ConditionBigDecimalIn<>(name, values_big);
 		}
 
 		public static class UpdateSetClauseBigDecimal extends UpdateSetClause {
@@ -371,7 +370,7 @@ public class DaoUtil {
 		}
 	}
 
-	public static class Field<T> {
+	public abstract static class Field<T, DTO> {
 		protected final String name;
 
 		public Field(String name) {
@@ -392,61 +391,61 @@ public class DaoUtil {
 
 	}
 
-	public static class FieldTimestamp extends Field<Timestamp> {
+	public static class FieldTimestamp<DTO> extends Field<Timestamp, DTO> {
 
 		public FieldTimestamp(String name) {
 			super(name);
 		}
 
-		public Condition is(RelationalOperator operator, Timestamp value) {
-			return new ConditionTimestampRelational(name, operator, value);
+		public Condition<DTO> is(RelationalOperator operator, Timestamp value) {
+			return new ConditionTimestampRelational<>(name, operator, value);
 		}
 
-		public Condition eq(Timestamp value) {
+		public Condition<DTO> eq(Timestamp value) {
 			return is(RelationalOperator.EQ, value);
 		}
 
-		public Condition notEq(Timestamp value) {
+		public Condition<DTO> notEq(Timestamp value) {
 			return is(RelationalOperator.NOT_EQ, value);
 		}
 
-		public Condition gt(Timestamp value) {
+		public Condition<DTO> gt(Timestamp value) {
 			return is(RelationalOperator.GT, value);
 		}
 
-		public Condition gte(Timestamp value) {
+		public Condition<DTO> gte(Timestamp value) {
 			return is(RelationalOperator.GTE, value);
 		}
 
-		public Condition lt(Timestamp value) {
+		public Condition<DTO> lt(Timestamp value) {
 			return is(RelationalOperator.LT, value);
 		}
 
-		public Condition lte(Timestamp value) {
+		public Condition<DTO> lte(Timestamp value) {
 			return is(RelationalOperator.LTE, value);
 		}
 
-		public Condition eq(Date value) {
+		public Condition<DTO> eq(Date value) {
 			return eq(new Timestamp(value.getTime()));
 		}
 
-		public Condition notEq(Date value) {
+		public Condition<DTO> notEq(Date value) {
 			return notEq(new Timestamp(value.getTime()));
 		}
 
-		public Condition gt(Date value) {
+		public Condition<DTO> gt(Date value) {
 			return gt(new Timestamp(value.getTime()));
 		}
 
-		public Condition gte(Date value) {
+		public Condition<DTO> gte(Date value) {
 			return gte(new Timestamp(value.getTime()));
 		}
 
-		public Condition lt(Date value) {
+		public Condition<DTO> lt(Date value) {
 			return lt(new Timestamp(value.getTime()));
 		}
 
-		public Condition lte(Date value) {
+		public Condition<DTO> lte(Date value) {
 			return lte(new Timestamp(value.getTime()));
 		}
 
@@ -470,65 +469,65 @@ public class DaoUtil {
 
 	}
 
-	public static class FieldString extends Field<String> {
+	public static class FieldString<DTO> extends Field<String, DTO> {
 
 		public FieldString(String name) {
 			super(name);
 		}
 
-		public Condition isNull() {
-			return new ConditionNull(name, true);
+		public Condition<DTO> isNull() {
+			return new ConditionNull<>(name, true);
 		}
 
-		public Condition isNotNull() {
-			return new ConditionNull(name, false);
+		public Condition<DTO> isNotNull() {
+			return new ConditionNull<>(name, false);
 		}
 
-		public Condition is(RelationalOperator operator, SqlExpr<String> value, boolean ignoreCase) {
-			return new ConditionStringRelational(name, operator, value, ignoreCase);
+		public Condition<DTO> is(RelationalOperator operator, SqlExpr<String> value, boolean ignoreCase) {
+			return new ConditionStringRelational<>(name, operator, value, ignoreCase);
 		}
 
-		public Condition is(RelationalOperator operator, String value, boolean ignoreCase) {
+		public Condition<DTO> is(RelationalOperator operator, String value, boolean ignoreCase) {
 			return is(operator, SqlExpr.lit(value), ignoreCase);
 		}
 
-		public Condition eq(String value) {
+		public Condition<DTO> eq(String value) {
 			return is(RelationalOperator.EQ, value, false);
 		}
 
-		public Condition notEq(String value) {
+		public Condition<DTO> notEq(String value) {
 			return is(RelationalOperator.NOT_EQ, value, false);
 		}
 
-		public Condition gt(String value) {
+		public Condition<DTO> gt(String value) {
 			return is(RelationalOperator.GT, value, false);
 		}
 
-		public Condition gte(String value) {
+		public Condition<DTO> gte(String value) {
 			return is(RelationalOperator.GTE, value, false);
 		}
 
-		public Condition lt(String value) {
+		public Condition<DTO> lt(String value) {
 			return is(RelationalOperator.LT, value, false);
 		}
 
-		public Condition lte(String value) {
+		public Condition<DTO> lte(String value) {
 			return is(RelationalOperator.LTE, value, false);
 		}
 
-		public ConditionStringIn in(Collection<String> values) {
-			return new ConditionStringIn(name, Stream.of(values).map(SqlExpr.lit_str).toList());
+		public ConditionStringIn<DTO> in(Collection<String> values) {
+			return new ConditionStringIn<>(name, values.stream().map(SqlExpr::lit).collect(Collectors.toList()));
 		}
 
-		public Condition in(String... values) {
-			return new ConditionStringIn(name, Stream.of(values).map(SqlExpr.lit_str).toList());
+		public Condition<DTO> in(String... values) {
+			return in(Arrays.asList(values));
 		}
 
-		public Condition like(String value, String escapeString) {
-			return new ConditionStringLike(name, SqlExpr.lit(value), escapeString);
+		public Condition<DTO> like(String value, String escapeString) {
+			return new ConditionStringLike<>(name, SqlExpr.lit(value), escapeString);
 		}
 
-		public Condition like(String value) {
+		public Condition<DTO> like(String value) {
 			return like(value, null);
 		}
 
@@ -553,15 +552,15 @@ public class DaoUtil {
 	}
 
 	public static class OrderByClause {
-		private final Field<?> field;
+		private final Field<?, ?> field;
 		private final OrderByDirection direction;
 
-		public OrderByClause(Field<?> field, OrderByDirection direction) {
+		public OrderByClause(Field<?, ?> field, OrderByDirection direction) {
 			this.field = field;
 			this.direction = direction;
 		}
 
-		public OrderByClause(Field<?> field) {
+		public OrderByClause(Field<?, ?> field) {
 			this(field, OrderByDirection.ASC);
 		}
 
@@ -599,16 +598,6 @@ public class DaoUtil {
 
 	public static <T> ToList<T> toList(Collection<T> list) {
 		return new ToList<T>(list);
-	}
-
-	public static String join(Iterator<String> iterator, String separator) {
-		final StringBuilder res = new StringBuilder();
-		while (iterator.hasNext()) {
-			final String s = iterator.next();
-			res.append(s);
-			if (iterator.hasNext()) res.append(separator);
-		}
-		return res.toString();
 	}
 
 	public abstract static class UpdateSetClause extends SqlFragment {

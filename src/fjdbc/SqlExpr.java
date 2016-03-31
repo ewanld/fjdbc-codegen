@@ -7,8 +7,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 
-import com.github.stream4j.Function;
-
 import fjdbc.DaoUtil.SqlExprRaw;
 import fjdbc.DaoUtil.SqlLiteralBigDecimal;
 import fjdbc.DaoUtil.SqlLiteralString;
@@ -60,14 +58,5 @@ public abstract class SqlExpr<T> extends SqlFragment {
 	}
 
 	public static final SqlExpr<Timestamp> sysdate = new SqlExprRaw<Timestamp>("sysdate");
-
-	public static final Function<String, SqlExpr<String>> lit_str = new Function<String, SqlExpr<String>>() {
-
-		@Override
-		public SqlExpr<String> apply(String t) {
-			return SqlExpr.lit(t);
-		}
-
-	};
 
 }

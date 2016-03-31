@@ -12,11 +12,10 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
-
-import com.github.stream4j.Function;
-import com.github.stream4j.Stream;
 
 import fjdbc.codegen.DbUtil.ColumnDescriptor;
 import fjdbc.codegen.DbUtil.SequenceDescriptor;
@@ -76,7 +75,7 @@ public class CodeGenerator {
         jdbcTypes.add(new JdbcType(Types.TIMESTAMP_WITH_TIMEZONE, "Object"    , "Object"    , "FieldString"    ));
         jdbcTypes.add(new JdbcType(Types.OTHER                  , "Object"              , "Object"    , "FieldString"    ));
 		//@formatter:on
-		jdbcTypeMap = Stream.of(jdbcTypes).toMap(JdbcType.getJdbcType);
+		jdbcTypeMap = jdbcTypes.stream().collect(Collectors.toMap(JdbcType.getJdbcType, Function.identity()));
 	}
 
 	public JdbcType getJdbcType(int type) {
@@ -133,22 +132,17 @@ public class CodeGenerator {
 		}
 
 		public void gen_DaoClass(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
-			write("	public static class %s_Dao extends Dao {", table.getName());
+			write("	public static class %s_Dao extends Dao<%s> {", toClassName(table.getName()),
+					toClassName(table.getName()));
 
-			// enum Field
-			for (final ColumnDescriptor col : columns) {
-				final JdbcType type = getJdbcType(col.getType());
-				write("		public final %s %s = new %s(\"%s\");", type.getFieldClassName(),
-						col.getName().toLowerCase(), type.getFieldClassName(), col.getName());
-			}
-			write("		");
+			gen_fields(table, columns);
 
 			gen_constructor(table);
-			gen_search(table, columns);
-			gen_search2(table);
+			// gen_search(table, columns);
+			// gen_search2(table);
 
 			if (!table.isReadOnly()) {
-				gen_update(table);
+				// gen_update(table);
 				gen_merge(table, columns);
 				gen_insert(table, columns);
 				gen_insert2(table, columns);
@@ -158,21 +152,61 @@ public class CodeGenerator {
 			write("	}\n");
 		}
 
+		private void gen_fields(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
+			final List<String> colNames = columns.stream().map(ColumnDescriptor::getName).collect(Collectors.toList());
+			// fields
+			for (final ColumnDescriptor col : columns) {
+				final JdbcType type = getJdbcType(col.getType());
+				write("		public final %s<%s> %s = new %s<>(\"%s\");", type.getFieldClassName(),
+						toClassName(table.getName()), col.getName().toLowerCase(), type.getFieldClassName(),
+						col.getName());
+			}
+			write("		");
+
+			// field extractor
+			write("		private static final SingleRowExtractor<%s> extractor = (rs) -> {",
+					toClassName(table.getName()));
+			for (final ColumnDescriptor col : columns) {
+				final JdbcType type = getJdbcType(col.getType());
+				write("			final %-10s %-20s = rs.%-13s(\"%s\");", type.getJavaType(), col.getName(),
+						type.getGetterMethodName(), col.getName());
+			}
+			write("			final %s obj = new %s(%s);", toClassName(table.getName()), toClassName(table.getName()),
+					StringUtils.join(colNames.iterator(), ", "));
+			write("			return obj;");
+			write("		};\n");
+
+			// method getPsBinder
+			write("		private PreparedStatementBinder getPsBinder(%s _value) {", toClassName(table.getName()));
+			write("			return (st) -> {");
+			int index = 1;
+			for (final ColumnDescriptor col : columns) {
+				final JdbcType type = getJdbcType(col.getType());
+				write("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++,
+						col.getName().toLowerCase());
+			}
+			write("			};");
+			write("		}\n");
+		}
+
 		public void gen_header(Collection<TableDescriptor> tables) throws IOException {
 			write("package %s;", packageName);
 			write("");
 			write("import java.util.List;");
 			write("import java.util.Collection;");
-			write("import java.util.ArrayList;");
 			write("import java.sql.*;");
-			write("import com.github.stream4j.Consumer;");
-			write("import com.github.stream4j.Stream;");
+			write("import java.util.function.Consumer;");
+			write("import java.util.stream.Stream;");
+			write("import java.util.stream.Collectors;");
 			write("import fjdbc.Dao;");
 			write("import fjdbc.DaoUtil;");
 			write("import fjdbc.DaoUtil.*;");
 			write("import fjdbc.Condition;");
 			write("import fjdbc.SqlFragment;");
 			write("import fjdbc.SqlExpr;");
+			write("import com.github.fjdbc.query.*;");
+			write("import com.github.fjdbc.*;");
+			write("import com.github.fjdbc.op.*;");
 			write("import %s.Dto.*;", packageName);
 			write("");
 
@@ -181,24 +215,24 @@ public class CodeGenerator {
 
 			// fields
 			for (final TableDescriptor table : tables) {
-				write("	public final %s_Dao %s;", table.getName(), table.getName().toLowerCase());
+				write("	public final %s_Dao %s;", toClassName(table.getName()), table.getName().toLowerCase());
 			}
 			write("	");
 
 			// constructor Tables
 			write("	public Tables(Connection cnx) {");
 			for (final TableDescriptor table : tables) {
-				write("		%s = new %s_Dao(cnx);", table.getName().toLowerCase(), table.getName());
+				write("		%s = new %s_Dao(cnx);", table.getName().toLowerCase(), toClassName(table.getName()));
 			}
-			write("	}");
+			write("	}\n");
 		}
 
 		public void gen_insert2(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
 				throws IOException {
-			final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+			final List<String> colNames = columns.stream().map(ColumnDescriptor::getName).collect(Collectors.toList());
 
 			//@formatter:off
-			write("		public int insert(");
+			write("		public DbOp insert(");
 			boolean first = true;
 			for (final ColumnDescriptor col : columns) {
 			final JdbcType type = getJdbcType(col.getType());
@@ -206,7 +240,6 @@ public class CodeGenerator {
 			first = false;
 			}
 			write("		) {");
-			write("			PreparedStatement st = null;");
 			write("			final StringBuilder sql = new StringBuilder(\"insert into %s(%s) values(\");", table.getName(), StringUtils.join(colNames.iterator(), ", "));
 			first = true;
 			for (final ColumnDescriptor col : columns) {
@@ -214,83 +247,57 @@ public class CodeGenerator {
 			first = false;
 			}
 			write("			sql.append(\")\");");
-			write("			try {");
-			write("				st = cnx.prepareStatement(sql.toString());");
-			write("				Sequence parameterIndex = new Sequence(1);");
+			write("			final PreparedStatementBinder binder = (st) -> {");
+			write("				final Sequence parameterIndex = new Sequence(1);");
 			for (final ColumnDescriptor col : columns) {
 			write("				_%s.bind(st, parameterIndex);", col.getName().toLowerCase());
 			}
-			write("				final int nRows = st.executeUpdate();");
-			write("				cnx.commit();");
-			write("				return nRows;");
-			write("			} catch (SQLException e) {");
-			write("				throw new RuntimeException(e);");
-			write("			} finally {");
-			write("				DaoUtil.close(st);");
-			write("			}");
-			write("		}");
+			write("			};");
+			write("			return new PreparedStatementOp(sql.toString(), binder);");
+			write("		}\n");
 			//@formatter:on
 		}
 
 		public void gen_insert(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
 				throws IOException {
-			final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+			final List<String> colNames = columns.stream().map(ColumnDescriptor::getName).collect(Collectors.toList());
 
 			//@formatter:off
-			write("		public int insert(%s _value) {", table.getName());
-			write("			PreparedStatement st = null;");
+			write("		public DbOp insert(%s _value) {", toClassName(table.getName()));
 			write("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(), StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
-			write("			try {");
-			write("				st = cnx.prepareStatement(sql);");
-			int index = 1;
-			for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			write("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
-			}
-			write("				final int nRows = st.executeUpdate();");
-			write("				cnx.commit();");
-			write("				return nRows;");
-			write("			} catch (SQLException e) {");
-			write("				throw new RuntimeException(e);");
-			write("			} finally {");
-			write("				DaoUtil.close(st);");
-			write("			}");
-			write("		}");
+			write("			return new PreparedStatementOp(sql.toString(), getPsBinder(_value));");
+			write("		}\n");
 			//@formatter:on
 		}
 
 		public void gen_merge(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
 				throws IOException {
-			final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+			final List<String> colNames = columns.stream().map(ColumnDescriptor::getName).collect(Collectors.toList());
 
-			Collection<ColumnDescriptor> pk = Stream.of(columns).filter(ColumnDescriptor.isPrimaryKey).toList();
+			Collection<ColumnDescriptor> pk = columns.stream().filter(ColumnDescriptor::isPrimaryKey)
+					.collect(Collectors.toList());
 			if (pk.size() == 0) pk = columns;
-			final List<ColumnDescriptor> nonPk = Stream.of(columns).filter(ColumnDescriptor.isPrimaryKey.negate())
-					.toList();
-			final List<String> pkAssignments = Stream.of(pk).map(new Function<ColumnDescriptor, String>() {
+			final List<ColumnDescriptor> nonPk = columns.stream().filter(d -> !d.isPrimaryKey())
+					.collect(Collectors.toList());
+			final List<String> pkAssignments = pk.stream().map(new Function<ColumnDescriptor, String>() {
 				@Override
 				public String apply(ColumnDescriptor t) {
 					return t.getName() + " = ?";
 				}
-			}).toList();
-			final List<String> nonPkAssignments = Stream.of(nonPk).map(new Function<ColumnDescriptor, String>() {
-				@Override
-				public String apply(ColumnDescriptor t) {
-					return t.getName() + " = ?";
-				}
-			}).toList();
+			}).collect(Collectors.toList());
+			final List<String> nonPkAssignments = nonPk.stream().map(t -> t.getName() + " = ?")
+					.collect(Collectors.toList());
 
 			//@formatter:off
-			write("		public int merge(%s _value) {", table.getName());
+			write("		public DbOp merge(%s _value) {", toClassName(table.getName()));
 			write("			final String sql =");
 			write("				  \" merge into %s using dual on (%s)\"", table.getName(), StringUtils.join(pkAssignments.iterator(), " and "));
 			if (pk.size() < columns.size()) {
 			write("				+ \" when matched then update set %s\"", StringUtils.join(nonPkAssignments.iterator(), ", "));
 			}
 			write("				+ \" when not matched then insert (%s) values (%s)\";", StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
-			write("			PreparedStatement st = null;");
-			write("			try {");
-			write("				st = cnx.prepareStatement(sql);");
+			
+			write("			final PreparedStatementBinder binder = (st) -> {");
 			int index = 1;
 			for (final ColumnDescriptor col : pk) {
 			final JdbcType type = getJdbcType(col.getType());
@@ -306,14 +313,8 @@ public class CodeGenerator {
 			final JdbcType type = getJdbcType(col.getType());
 			write("				st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
 			}
-			write("				final int nRows = st.executeUpdate();");
-			write("				cnx.commit();");
-			write("				return nRows;");
-			write("			} catch (SQLException e) {");
-			write("				throw new RuntimeException(e);");
-			write("			} finally {");
-			write("				DaoUtil.close(st);");
-			write("			}");
+			write("			};");
+			write("			return new PreparedStatementOp(sql, binder);");
 			write("		}\n");
 			//@formatter:on
 		}
@@ -326,7 +327,7 @@ public class CodeGenerator {
 			write("			PreparedStatement st = null;");
 			write("			final StringBuilder sql = new StringBuilder();");
 			write("			sql.append(\"update %s set \");", table.getName());
-			write("			final List<String> updates_str = Stream.of(updates).map(SqlFragment.toSql).toList();");
+			write("			final List<String> updates_str = updates.stream().map(SqlFragment::toSql).collect(Collectors.toList());");
 			write("			sql.append(DaoUtil.join(updates_str.iterator(), \", \"));");
 			write("			if (condition != null) sql.append(\" where \").append(condition.toSql());");
 			write("			final Sequence parameterIndex = new Sequence(1);");
@@ -348,75 +349,55 @@ public class CodeGenerator {
 			//@formatter:on
 		}
 
-		public void gen_search2(final TableDescriptor table) throws IOException {
-			//@formatter:off
-			write("		public List<%s> search(Condition condition, Collection<OrderByClause> orderBy) {", table.getName(), table.getName(), table.getName());
-			write("			List<%s> res = new ArrayList<%s>();", table.getName(), table.getName());
-			write("			search(condition, orderBy, DaoUtil.toList(res));");
-			write("			return res;");
-			write("		}\n");
-			//@formatter:on
-		}
-
 		public void gen_search(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
 				throws IOException {
-			final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+			final List<String> colNames = columns.stream().map(ColumnDescriptor::getName).collect(Collectors.toList());
 			//@formatter:off
-			write("		public void search(Condition condition, Collection<OrderByClause> orderBy, Consumer<%s> callback) {", table.getName(), table.getName(), table.getName());
+			write("		private static final SingleRowExtractor<%s> extractor = (rs) -> {", toClassName(table.getName()));
+			for (final ColumnDescriptor col : columns) {
+			final JdbcType type = getJdbcType(col.getType());
+			write("			final %-10s %-20s = rs.%-13s(\"%s\");", type.getJavaType(), col.getName(), type.getGetterMethodName(), col.getName());
+			}
+			write("			final %s obj = new %s(%s);", toClassName(table.getName()), toClassName(table.getName()), StringUtils.join(colNames.iterator(), ", "));
+			write("			return obj;");
+			write("		};\n");
+			
+			write("		@Override");
+			write("		public void search(Condition condition, Collection<OrderByClause> orderBy, Consumer<%s> callback) {", toClassName(table.getName()));
 			write("			PreparedStatement st = null;");
 			write("			final StringBuilder query = new StringBuilder();");
-			write("			query.append(\"select * from %s\");", table.getName());
+			write("			query.append(\"select * from \").append(tableName);");
 			write("			if (condition != null) query.append(\" where \").append(condition.toSql());");
 			write("			if (orderBy != null) {");
 			write("				query.append(\" order by \");");
-			write("				final List<String> orderBy_str = Stream.of(orderBy).map(OrderByClause.toSql).toList();");
+			write("				final List<String> orderBy_str = orderBy.stream().map(OrderByClause::toSql).collect(Collectors.toList());");
 			write("				query.append(DaoUtil.join(orderBy_str.iterator(), \", \"));");
 			write("			}");
-			write("			try {");
-			write("				st = cnx.prepareStatement(query.toString());", table.getName());
-			write("				if (condition != null) condition.bind(st, new Sequence(1));", table.getName());
-			write("				final ResultSet rs = st.executeQuery();");
-			write("				while(rs.next()) {");
-			for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			write("					final %-10s %-20s = rs.%-13s(\"%s\");", type.getJavaType(), col.getName(), type.getGetterMethodName(), col.getName());
-			}
-			write("					final %s obj = new %s(%s);", table.getName(), table.getName(), StringUtils.join(colNames.iterator(), ", "));
-			write("					callback.accept(obj);");
-			write("				}");
-			write("				rs.close();");
-			write("			} catch (SQLException e) {");
-			write("				throw new RuntimeException(e);");
-			write("			} finally {");
-			write("				DaoUtil.close(st);");
-			write("			}");
+			write("			new Query<>(cnx, query.toString(), extractor).forEach(callback);");
 			write("		}\n");
 			//@formatter:on
 		}
 
 		public void gen_constructor(final TableDescriptor table) throws IOException {
 			//@formatter:off
-			write("		public %s_Dao(Connection cnx) {", table.getName());
-			write("			super(cnx, \"%s\");", table.getName());
+			write("		public %s_Dao(Connection cnx) {",  toClassName(table.getName()));
+			write("			super(cnx, \"%s\", extractor);", table.getName());
 			write("		}\n");
 			//@formatter:on
 		}
 
 		public void gen_insertBatch(final TableDescriptor table, final Collection<ColumnDescriptor> columns)
 				throws IOException {
-			final List<String> colNames = Stream.of(columns).map(ColumnDescriptor.getName).toList();
+			final List<String> colNames = columns.stream().map(ColumnDescriptor.getName).collect(Collectors.toList());
 			//@formatter:off
-			write("		public int[] insertBatch(Iterable<%s> _values) {", table.getName());
+			write("		public int[] insertBatch(Iterable<%s> _values) {", toClassName(table.getName()));
 			write("			PreparedStatement st = null;");
 			write("			final String sql = \"insert into %s(%s) values(%s)\";", table.getName(), StringUtils.join(colNames.iterator(), ", "), StringUtils.join(Collections.nCopies(columns.size(), "?").iterator(), ", "));
 			write("			try {");
 			write("				st = cnx.prepareStatement(sql);");
-			write("				for (%s _value : _values) {", table.getName());
-			int index = 1;
-			for (final ColumnDescriptor col : columns) {
-			final JdbcType type = getJdbcType(col.getType());
-			write("					st.%-13s(%3s, _value.%s);", type.getSetterMethodName(), index++, col.getName() .toLowerCase());
-			}
+			write("				for (%s _value : _values) {", toClassName(table.getName()));
+			write("					final PreparedStatementBinder binder = getPsBinder(_value);");
+			write("					binder.bind(st);");
 			write("					st.addBatch();");
 			write("				}");
 			write("				final int[] nRows = st.executeBatch();");
@@ -443,7 +424,7 @@ public class CodeGenerator {
 
 		public void gen_DtoClass(TableDescriptor table, Collection<ColumnDescriptor> columns) throws IOException {
 			// class TABLE
-			write("	public static class %s {", table.getName());
+			write("	public static class %s {", toClassName(table.getName()));
 
 			// field column from class TABLE
 			for (final ColumnDescriptor col : columns) {
@@ -453,17 +434,12 @@ public class CodeGenerator {
 			}
 
 			// TABLE constructor
-			final List<String> colDefs = Stream.of(columns).map(new Function<ColumnDescriptor, String>() {
-
-				@Override
-				public String apply(ColumnDescriptor t) {
-					final JdbcType jdbcType = getJdbcType(t.getType());
-					final String javaType = jdbcType == null ? "Object" : jdbcType.getJavaType();
-					return String.format("%s %s", javaType, t.getName().toLowerCase());
-				}
-
-			}).toList();
-			write("		public %s(%s) {", table.getName(), StringUtils.join(colDefs.iterator(), ", "));
+			final List<String> colDefs = columns.stream().map(t -> {
+				final JdbcType jdbcType = getJdbcType(t.getType());
+				final String javaType = jdbcType == null ? "Object" : jdbcType.getJavaType();
+				return String.format("%s %s", javaType, t.getName().toLowerCase());
+			}).collect(Collectors.toList());
+			write("		public %s(%s) {", toClassName(table.getName()), StringUtils.join(colDefs.iterator(), ", "));
 			for (final ColumnDescriptor col : columns) {
 				write("			this.%s = %s;", col.getName().toLowerCase(), col.getName().toLowerCase());
 			}
@@ -573,6 +549,10 @@ public class CodeGenerator {
 		public String getFieldClassName() {
 			return fieldClassName;
 		}
+	}
+
+	public static String toClassName(String name) {
+		return StringUtils.capitalize(name);
 	}
 
 }
