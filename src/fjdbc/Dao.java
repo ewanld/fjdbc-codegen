@@ -9,7 +9,7 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Date;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang.StringUtils;
 
 import com.github.fjdbc.PreparedStatementBinder;
+import com.github.fjdbc.Sequence;
 import com.github.fjdbc.op.DbOp;
 import com.github.fjdbc.op.PreparedStatementOp;
 import com.github.fjdbc.query.PreparedQuery;
@@ -33,11 +34,23 @@ public abstract class Dao<DTO> {
 	protected final String tableName;
 	protected final Connection cnx;
 	private final ResultSetExtractor<DTO> extractor;
+	/**
+	 * Unmodifiable
+	 */
+	private Collection<Field<?, DTO>> fields;
 
 	public Dao(Connection cnx, String tableName, ResultSetExtractor<DTO> extractor) {
 		this.cnx = cnx;
 		this.tableName = tableName;
 		this.extractor = extractor;
+	}
+
+	public void setFields(Collection<Field<?, DTO>> fields) {
+		this.fields = Collections.unmodifiableCollection(new ArrayList<>(fields));
+
+		for (final Field<?, DTO> field : fields) {
+			field.setParent(this);
+		}
 	}
 
 	public void search(Condition<DTO> condition, Collection<OrderByClause> orderBy, Consumer<DTO> callback) {
@@ -49,11 +62,8 @@ public abstract class Dao<DTO> {
 			final String orderBy_str = orderBy.stream().map(OrderByClause::toSql).collect(Collectors.joining(", "));
 			query.append(orderBy_str);
 		}
-		final PreparedStatementBinder binder = (st) -> {
-			final Sequence parameterIndex = new Sequence(1);
-			condition.bind(st, parameterIndex);
-		};
-		new PreparedQuery<>(cnx, query.toString(), binder, extractor).forEach(callback);
+		System.out.println(query);
+		new PreparedQuery<>(cnx, query.toString(), condition, extractor).forEach(callback);
 	}
 
 	public List<DTO> search(Condition<DTO> condition, Collection<OrderByClause> orderBy) {
@@ -63,11 +73,9 @@ public abstract class Dao<DTO> {
 	}
 
 	public int count(Condition<DTO> condition) {
-		PreparedStatement st = null;
 		final String condition_sql = condition == null ? "1=1" : condition.toSql();
 		final String sql = String.format("select count(*) from %s where %s", tableName, condition_sql);
-		try {
-			st = cnx.prepareStatement(sql);
+		try (PreparedStatement st = cnx.prepareStatement(sql)) {
 			if (condition != null) condition.bind(st, new Sequence(1));
 			final ResultSet rs = st.executeQuery();
 			rs.next();
@@ -75,19 +83,15 @@ public abstract class Dao<DTO> {
 			return res;
 		} catch (final SQLException e) {
 			throw new RuntimeException(e);
-		} finally {
-			DaoUtil.close(st);
 		}
 	}
 
 	public boolean exists(Condition<DTO> condition) {
-		PreparedStatement st = null;
 		final String condition_sql = condition == null ? "1=1" : condition.toSql();
 		final String sql = String.format(
 				"select case when exists(select 1 from %s where %s) then 1 else 0 end from dual", tableName,
 				condition_sql);
-		try {
-			st = cnx.prepareStatement(sql);
+		try (PreparedStatement st = cnx.prepareStatement(sql)) {
 			if (condition != null) condition.bind(st, new Sequence(1));
 			final ResultSet rs = st.executeQuery();
 			rs.next();
@@ -95,30 +99,31 @@ public abstract class Dao<DTO> {
 			return res == 1;
 		} catch (final SQLException e) {
 			throw new RuntimeException(e);
-		} finally {
-			DaoUtil.close(st);
 		}
 	}
 
-	@SafeVarargs
-	public final ConditionAnd<DTO> and(Condition<DTO>... conditions) {
-		return and(Arrays.asList(conditions));
+	public int[] insertBatch(Iterable<DTO> values, Long commitEveryNRows) {
+		final String sql = getInsertSql();
+		try (PreparedStatement st = cnx.prepareStatement(sql)) {
+			long i = 1L;
+			for (final DTO _value : values) {
+				final PreparedStatementBinder binder = getPsBinder(_value);
+				binder.bind(st);
+				st.addBatch();
+				if (commitEveryNRows != null && i++ == commitEveryNRows) {
+					cnx.commit();
+					i = 1L;
+				}
+			}
+			final int[] nRows = st.executeBatch();
+			if (commitEveryNRows != null) cnx.commit();
+			return nRows;
+		} catch (final SQLException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
-	public final ConditionAnd<DTO> and(Collection<Condition<DTO>> conditions) {
-		return new ConditionAnd<>(conditions);
-	}
-
-	@SafeVarargs
-	public final ConditionOr<DTO> or(Condition<DTO>... conditions) {
-		return or(Arrays.asList(conditions));
-	}
-
-	public final ConditionOr<DTO> or(Collection<Condition<DTO>> conditions) {
-		return new ConditionOr<>(conditions);
-	}
-
-	public DbOp update(Collection<UpdateSetClause> updates, Condition<DTO> condition) {
+	public DbOp update(Collection<UpdateSetClause<?, DTO>> updates, Condition<DTO> condition) {
 		assert updates != null;
 		assert updates.size() >= 1;
 		final StringBuilder sql = new StringBuilder();
@@ -126,10 +131,9 @@ public abstract class Dao<DTO> {
 		final String updates_str = updates.stream().map(SqlFragment::toSql).collect(Collectors.joining(", "));
 		sql.append(updates_str);
 		if (condition != null) sql.append(" where ").append(condition.toSql());
-		final Sequence parameterIndex = new Sequence(1);
 
-		final PreparedStatementBinder binder = (st) -> {
-			for (final UpdateSetClause update : updates) {
+		final PreparedStatementBinder binder = (st, parameterIndex) -> {
+			for (final UpdateSetClause<?, DTO> update : updates) {
 				update.bind(st, parameterIndex);
 			}
 			if (condition != null) condition.bind(st, parameterIndex);
@@ -138,14 +142,25 @@ public abstract class Dao<DTO> {
 		return new PreparedStatementOp(sql.toString(), binder);
 	}
 
+	protected abstract PreparedStatementBinder getPsBinder(DTO _value);
+
+	public DbOp insert(DTO _value) {
+		final String sql = getInsertSql();
+		return new PreparedStatementOp(sql.toString(), getPsBinder(_value));
+	}
+
+	private String getInsertSql() {
+		final String fields_str = fields.stream().map(Field::getName).collect(Collectors.joining(", "));
+		final String placeholders_str = Collections.nCopies(fields.size(), "?").stream()
+				.collect(Collectors.joining(", "));
+		final String sql = String.format("insert into %s(%s) values(%s)", tableName, fields_str, placeholders_str);
+		return sql;
+	}
+
 	public DbOp delete(Condition<DTO> condition) {
 		final String condition_sql = condition == null ? "1=1" : condition.toSql();
 		final String sql = String.format("delete from %s where %s", tableName, condition_sql);
-		final Sequence paramIndex = new Sequence(1);
-		final PreparedStatementBinder binder = (st) -> {
-			condition.bind(st, paramIndex);
-		};
-		return new PreparedStatementOp(sql, binder);
+		return new PreparedStatementOp(sql, condition);
 	}
 
 	public static class ConditionAnd<DTO> extends ConditionComposite<DTO> {
@@ -214,31 +229,79 @@ public abstract class Dao<DTO> {
 		}
 	}
 
-	public static class ConditionStringRelational<DTO> extends ConditionSimple<DTO> {
-		private final SqlExpr<String> value;
+	public enum SubqueryOperator {
+		SINGLE_ROW(""), ALL_ROWS("ALL"), ANY_ROW("ANY");
+
+		private final String sql;
+
+		private SubqueryOperator(String sql) {
+			this.sql = sql;
+		}
+
+		public String toSql() {
+			return sql;
+		}
+	}
+
+	public static class ConditionRelational<DTO, T> extends ConditionSimple<DTO> {
+
 		private final RelationalOperator operator;
-		private final boolean ignoreCase;
+		private final Field<T, DTO> field;
+		private final SqlExpr<T> value;
 
-		public ConditionStringRelational(String fieldName, RelationalOperator operator, SqlExpr<String> value,
-				boolean ignoreCase) {
-			super(fieldName);
-			assert operator != null;
-			assert value != null;
-
+		public ConditionRelational(Field<T, DTO> field, RelationalOperator operator, SqlExpr<T> value) {
+			super(field.getName());
+			this.field = field;
 			this.operator = operator;
 			this.value = value;
-			this.ignoreCase = ignoreCase;
 		}
 
 		@Override
 		public String toSql() {
-			return ignoreCase ? String.format("lower(%s) %s lower(%s)", fieldName, operator.toSql(), value.toSql())
-					: String.format("%s %s %s", fieldName, operator.toSql(), value.toSql());
+			// @formatter:off
+			final String operator_sql =
+					  (operator == RelationalOperator.EQ && value.isDefinitelyNull())     ? "is"
+					: (operator == RelationalOperator.NOT_EQ && value.isDefinitelyNull()) ? "is not"
+					: operator.toSql();
+			// @formatter:o,
+			return String.format("%s %s %s", field.toSql(), operator_sql, value.toSql());
 		}
 
 		@Override
 		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
+			field.bind(st, parameterIndex);
 			value.bind(st, parameterIndex);
+		}
+	}
+
+	public static class ConditionRelationalSubquery<DTO, T, OtherDTO> extends Condition<DTO> {
+		private final Field<T, DTO> field;
+		private final Condition<OtherDTO> condition;
+		private final Field<?, OtherDTO> otherField;
+		private final RelationalOperator operator;
+		private final SubqueryOperator subqueryOperator;
+
+		public ConditionRelationalSubquery(Field<T, DTO> field, RelationalOperator operator, SubqueryOperator subqueryOperator, Field<T, OtherDTO> otherField,
+				Condition<OtherDTO> condition) {
+			this.operator = operator;
+			this.subqueryOperator = subqueryOperator;
+			assert field != null;
+			assert otherField != null;
+			this.field = field;
+			this.otherField = otherField;
+			this.condition = condition;
+		}
+
+		@Override
+		public String toSql() {
+			final String condition_sql = condition == null ? "1=1" : condition.toSql();
+			return String.format("%s %s %s(select %s from %s where %s)", field.getName(), operator.toSql(), subqueryOperator.toSql(), otherField.getName(),
+					otherField.getParent().getTableName(), condition_sql);
+		}
+
+		@Override
+		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
+			condition.bind(st, parameterIndex);
 		}
 	}
 
@@ -255,30 +318,6 @@ public abstract class Dao<DTO> {
 			return isNull ? String.format("%s is null", fieldName) : String.format("%s is not null", fieldName);
 		}
 
-	}
-
-	public static class ConditionBigDecimalRelational<DTO> extends ConditionSimple<DTO> {
-		private final SqlExpr<BigDecimal> value;
-		private final RelationalOperator operator;
-
-		public ConditionBigDecimalRelational(String fieldName, RelationalOperator operator, SqlExpr<BigDecimal> value) {
-			super(fieldName);
-			assert operator != null;
-			assert value != null;
-
-			this.operator = operator;
-			this.value = value;
-		}
-
-		@Override
-		public String toSql() {
-			return String.format("%s %s %s", fieldName, operator.toSql(), value.toSql());
-		}
-
-		@Override
-		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			value.bind(st, parameterIndex);
-		}
 	}
 
 	public static class ConditionStringLike<DTO> extends ConditionSimple<DTO> {
@@ -312,92 +351,30 @@ public abstract class Dao<DTO> {
 		}
 	}
 
-	public static class ConditionStringIn<DTO> extends ConditionSimple<DTO> {
-		private final Collection<SqlExpr<String>> values;
-
-		public ConditionStringIn(String fieldName, Collection<SqlExpr<String>> values) {
+	public static class ConditionIn<DTO, T> extends ConditionSimple<DTO> {
+		private final Collection<SqlExpr<T>> values;
+		
+		public ConditionIn(String fieldName, Collection<SqlExpr<T>> values) {
 			super(fieldName);
 			assert values != null;
-
+			
 			this.values = values;
 		}
-
+		
 		@Override
 		public String toSql() {
 			if (values.size() == 0) return "1=0";
-
-			final List<String> values_str = values.stream().map(SqlFragment::toSql).collect(Collectors.toList());
-			return values + " in (" + StringUtils.join(values_str.iterator(), ", ") + ")";
+			
+			final String values_sql = values.stream().map(SqlFragment::toSql).collect(Collectors.joining(", "));
+			return String.format("%s in (%s)", fieldName, values_sql);
 		}
-
+		
 		@Override
 		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			for (final SqlExpr<String> value : values) {
+			for (final SqlExpr<T> value : values) {
 				value.bind(st, parameterIndex);
 			}
 		}
-	}
-
-	public static class ConditionBigDecimalIn<DTO> extends ConditionSimple<DTO> {
-		private final Collection<BigDecimal> values;
-
-		public ConditionBigDecimalIn(String fieldName, Collection<BigDecimal> values) {
-			super(fieldName);
-			assert values != null;
-
-			this.values = values;
-		}
-
-		private static final Function<BigDecimal, String> toPlainString = new Function<BigDecimal, String>() {
-
-			@Override
-			public String apply(BigDecimal t) {
-				return t.toPlainString();
-			}
-		};
-
-		@Override
-		public String toSql() {
-			final List<String> values_str = values.stream().map(toPlainString).collect(Collectors.toList());
-			final String res = String.format("%s in (%s)", fieldName, StringUtils.join(values_str.iterator(), ", "));
-			return res;
-		}
-	}
-
-	public static class ConditionTimestampRelational<DTO> extends ConditionSimple<DTO> {
-		private final RelationalOperator operator;
-		private final Timestamp value;
-
-		public ConditionTimestampRelational(String fieldName, RelationalOperator operator, Timestamp value) {
-			super(fieldName);
-			assert operator != null;
-			assert value != null;
-
-			this.operator = operator;
-			this.value = value;
-		}
-
-		@Override
-		public String toSql() {
-			return String.format("%s %s ?", fieldName, operator.toSql());
-		}
-
-		@Override
-		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			st.setTimestamp(parameterIndex.nextValue(), value);
-		}
-	}
-
-	public static abstract class ConditionSimpleFactory {
-		protected final String fieldName;
-
-		public ConditionSimpleFactory(String fieldName) {
-			assert fieldName != null;
-			assert fieldName.length() > 0;
-
-			this.fieldName = fieldName;
-		}
-
 	}
 
 	public static class FieldBigDecimal<DTO> extends Field<BigDecimal, DTO> {
@@ -406,98 +383,16 @@ public abstract class Dao<DTO> {
 			super(name);
 		}
 
-		public Condition<DTO> is(RelationalOperator operator, SqlExpr<BigDecimal> value) {
-			return new ConditionBigDecimalRelational<>(name, operator, value);
+		public Condition<DTO> in(Long... values) {
+			final List<SqlExpr<BigDecimal>> values_expr = Arrays.asList(values).stream().map(BigDecimal::new).map(SqlExpr::lit).collect(Collectors.toList());
+			return new ConditionIn<DTO, BigDecimal>(name, values_expr);
 		}
+	}
 
-		public Condition<DTO> is(RelationalOperator operator, BigDecimal value) {
-			return is(operator, SqlExpr.lit(value));
-		}
+	public static class FieldTimestamp<DTO> extends Field<Timestamp, DTO> {
 
-		public Condition<DTO> eq(BigDecimal value) {
-			return is(RelationalOperator.EQ, value);
-		}
-
-		public Condition<DTO> notEq(BigDecimal value) {
-			return is(RelationalOperator.NOT_EQ, value);
-		}
-
-		public Condition<DTO> gt(BigDecimal value) {
-			return is(RelationalOperator.GT, value);
-		}
-
-		public Condition<DTO> gte(BigDecimal value) {
-			return is(RelationalOperator.GTE, value);
-		}
-
-		public Condition<DTO> lt(BigDecimal value) {
-			return is(RelationalOperator.LT, value);
-		}
-
-		public Condition<DTO> lte(BigDecimal value) {
-			return is(RelationalOperator.LTE, value);
-		}
-
-		public Condition<DTO> in(BigDecimal... values) {
-			return new ConditionBigDecimalIn<>(name, Arrays.asList(values));
-		}
-
-		public Condition<DTO> eq(long value) {
-			return eq(new BigDecimal(value));
-		}
-
-		public Condition<DTO> notEq(long value) {
-			return notEq(new BigDecimal(value));
-		}
-
-		public Condition<DTO> gt(long value) {
-			return gt(new BigDecimal(value));
-		}
-
-		public Condition<DTO> gte(long value) {
-			return gte(new BigDecimal(value));
-		}
-
-		public Condition<DTO> lt(long value) {
-			return lt(new BigDecimal(value));
-		}
-
-		public Condition<DTO> lte(long value) {
-			return lte(new BigDecimal(value));
-		}
-
-		public Condition<DTO> is(RelationalOperator operator, long value) {
-			return is(operator, new BigDecimal(value));
-		}
-
-		public Condition<DTO> in(long... values) {
-			final Collection<BigDecimal> values_big = new ArrayList<BigDecimal>(values.length);
-			for (final long v : values) {
-				values_big.add(new BigDecimal(v));
-			}
-			return new ConditionBigDecimalIn<>(name, values_big);
-		}
-
-		public static class UpdateSetClauseBigDecimal extends UpdateSetClause {
-			private final BigDecimal value;
-
-			public UpdateSetClauseBigDecimal(String fieldName, BigDecimal value) {
-				super(fieldName);
-				this.value = value;
-			}
-
-			@Override
-			public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-				st.setBigDecimal(parameterIndex.nextValue(), value);
-			}
-		}
-
-		public UpdateSetClause set(BigDecimal value) {
-			return new UpdateSetClauseBigDecimal(name, value);
-		}
-
-		public UpdateSetClause set(long value) {
-			return new UpdateSetClauseBigDecimal(name, new BigDecimal(value));
+		public FieldTimestamp(String name) {
+			super(name);
 		}
 	}
 
@@ -520,8 +415,9 @@ public abstract class Dao<DTO> {
 		}
 	}
 
-	public abstract static class Field<T, DTO> {
+	public abstract static class Field<T, DTO> extends SqlExpr<T> {
 		protected final String name;
+		private Dao<DTO> parent;
 
 		public Field(String name) {
 			this.name = name;
@@ -539,90 +435,13 @@ public abstract class Dao<DTO> {
 			return new OrderByClause(this, direction);
 		}
 
-	}
-
-	public static class FieldTimestamp<DTO> extends Field<Timestamp, DTO> {
-
-		public FieldTimestamp(String name) {
-			super(name);
+		public UpdateSetClause<T, DTO> set(SqlExpr<T> value) {
+			return new UpdateSetClause<>(name, value);
 		}
 
-		public Condition<DTO> is(RelationalOperator operator, Timestamp value) {
-			return new ConditionTimestampRelational<>(name, operator, value);
-		}
-
-		public Condition<DTO> eq(Timestamp value) {
-			return is(RelationalOperator.EQ, value);
-		}
-
-		public Condition<DTO> notEq(Timestamp value) {
-			return is(RelationalOperator.NOT_EQ, value);
-		}
-
-		public Condition<DTO> gt(Timestamp value) {
-			return is(RelationalOperator.GT, value);
-		}
-
-		public Condition<DTO> gte(Timestamp value) {
-			return is(RelationalOperator.GTE, value);
-		}
-
-		public Condition<DTO> lt(Timestamp value) {
-			return is(RelationalOperator.LT, value);
-		}
-
-		public Condition<DTO> lte(Timestamp value) {
-			return is(RelationalOperator.LTE, value);
-		}
-
-		public Condition<DTO> eq(Date value) {
-			return eq(new Timestamp(value.getTime()));
-		}
-
-		public Condition<DTO> notEq(Date value) {
-			return notEq(new Timestamp(value.getTime()));
-		}
-
-		public Condition<DTO> gt(Date value) {
-			return gt(new Timestamp(value.getTime()));
-		}
-
-		public Condition<DTO> gte(Date value) {
-			return gte(new Timestamp(value.getTime()));
-		}
-
-		public Condition<DTO> lt(Date value) {
-			return lt(new Timestamp(value.getTime()));
-		}
-
-		public Condition<DTO> lte(Date value) {
-			return lte(new Timestamp(value.getTime()));
-		}
-
-		public static class UpdateSetClauseTimestamp extends UpdateSetClause {
-			private final Timestamp value;
-
-			public UpdateSetClauseTimestamp(String fieldName, Timestamp value) {
-				super(fieldName);
-				this.value = value;
-			}
-
-			@Override
-			public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-				st.setTimestamp(parameterIndex.nextValue(), value);
-			}
-		}
-
-		public UpdateSetClause set(Timestamp value) {
-			return new UpdateSetClauseTimestamp(name, value);
-		}
-
-	}
-
-	public static class FieldString<DTO> extends Field<String, DTO> {
-
-		public FieldString(String name) {
-			super(name);
+		@Override
+		public String toSql() {
+			return name;
 		}
 
 		public Condition<DTO> isNull() {
@@ -633,44 +452,71 @@ public abstract class Dao<DTO> {
 			return new ConditionNull<>(name, false);
 		}
 
-		public Condition<DTO> is(RelationalOperator operator, SqlExpr<String> value, boolean ignoreCase) {
-			return new ConditionStringRelational<>(name, operator, value, ignoreCase);
+		public Condition<DTO> is(RelationalOperator operator, SqlExpr<T> value) {
+			return new ConditionRelational<>(this, operator, value);
 		}
 
-		public Condition<DTO> is(RelationalOperator operator, String value, boolean ignoreCase) {
-			return is(operator, SqlExpr.lit(value), ignoreCase);
+		public Condition<DTO> eq(SqlExpr<T> value) {
+			return new ConditionRelational<>(this, RelationalOperator.EQ, value);
 		}
 
-		public Condition<DTO> eq(String value) {
-			return is(RelationalOperator.EQ, value, false);
+		public Condition<DTO> notEq(SqlExpr<T> value) {
+			return is(RelationalOperator.NOT_EQ, value);
 		}
 
-		public Condition<DTO> notEq(String value) {
-			return is(RelationalOperator.NOT_EQ, value, false);
+		public Condition<DTO> gt(SqlExpr<T> value) {
+			return is(RelationalOperator.GT, value);
 		}
 
-		public Condition<DTO> gt(String value) {
-			return is(RelationalOperator.GT, value, false);
+		public Condition<DTO> gte(SqlExpr<T> value) {
+			return is(RelationalOperator.GTE, value);
 		}
 
-		public Condition<DTO> gte(String value) {
-			return is(RelationalOperator.GTE, value, false);
+		public Condition<DTO> lt(SqlExpr<T> value) {
+			return is(RelationalOperator.LT, value);
 		}
 
-		public Condition<DTO> lt(String value) {
-			return is(RelationalOperator.LT, value, false);
+		public Condition<DTO> lte(SqlExpr<T> value) {
+			return is(RelationalOperator.LTE, value);
 		}
 
-		public Condition<DTO> lte(String value) {
-			return is(RelationalOperator.LTE, value, false);
+		public Dao<DTO> getParent() {
+			return parent;
 		}
 
-		public ConditionStringIn<DTO> in(Collection<String> values) {
-			return new ConditionStringIn<>(name, values.stream().map(SqlExpr::lit).collect(Collectors.toList()));
+		public void setParent(Dao<DTO> parent) {
+			this.parent = parent;
+		}
+
+		@Override
+		public boolean isDefinitelyNull() {
+			return false;
+		}
+
+		public <OtherDTO> ConditionRelationalSubquery<DTO, T, OtherDTO> is(RelationalOperator operator, SubqueryOperator subQueryOperator, Field<T, OtherDTO> otherField,
+				Condition<OtherDTO> condition) {
+			return new ConditionRelationalSubquery<>(this, operator, subQueryOperator, otherField, condition);
+		}
+		
+		public <OtherDTO> ConditionRelationalSubquery<DTO, T, OtherDTO> eq(Field<T, OtherDTO> otherField,
+				Condition<OtherDTO> condition) {
+			return is(RelationalOperator.EQ, SubqueryOperator.ANY_ROW, otherField, condition);
+		}
+		
+		public ConditionIn<DTO, T> in(Collection<SqlExpr<T>> values) {
+			return new ConditionIn<>(name, values);
+		}
+	}
+
+	public static class FieldString<DTO> extends Field<String, DTO> {
+
+		public FieldString(String name) {
+			super(name);
 		}
 
 		public Condition<DTO> in(String... values) {
-			return in(Arrays.asList(values));
+			final List<SqlExpr<String>> values_expr = Arrays.asList(values).stream().map(SqlExpr::lit).collect(Collectors.toList());
+			return new ConditionIn<>(name, values_expr);
 		}
 
 		public Condition<DTO> like(String value, String escapeString) {
@@ -680,25 +526,6 @@ public abstract class Dao<DTO> {
 		public Condition<DTO> like(String value) {
 			return like(value, null);
 		}
-
-		public static class UpdateSetClauseString extends UpdateSetClause {
-			private final String value;
-
-			public UpdateSetClauseString(String fieldName, String value) {
-				super(fieldName);
-				this.value = value;
-			}
-
-			@Override
-			public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-				st.setString(parameterIndex.nextValue(), value);
-			}
-		}
-
-		public UpdateSetClause set(String value) {
-			return new UpdateSetClauseString(name, value);
-		}
-
 	}
 
 	private static class ToList<T> implements Consumer<T> {
@@ -715,22 +542,28 @@ public abstract class Dao<DTO> {
 		}
 	}
 
-	public static <T> ToList<T> toList(Collection<T> list) {
+	private static <T> ToList<T> toList(Collection<T> list) {
 		return new ToList<T>(list);
 	}
 
-	public abstract static class UpdateSetClause extends SqlFragment {
+	public final static class UpdateSetClause<T, DTO> extends SqlFragment {
 		protected final String fieldName;
+		private final SqlExpr<T> value;
 
-		private UpdateSetClause(String fieldName) {
+		private UpdateSetClause(String fieldName, SqlExpr<T> value) {
 			this.fieldName = fieldName;
+			this.value = value;
 		}
 
 		@Override
 		public String toSql() {
-			return String.format("%s = ?", fieldName);
+			return String.format("%s = %s", fieldName, value.toSql());
 		}
 
+		@Override
+		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
+			value.bind(st, parameterIndex);
+		}
 	}
 
 	public static class SqlExprRaw<T> extends SqlExpr<T> {
@@ -747,14 +580,20 @@ public abstract class Dao<DTO> {
 			return sql;
 		}
 
+		@Override
+		public boolean isDefinitelyNull() {
+			return sql.trim().equalsIgnoreCase("null");
+		}
 	}
 
-	public static class SqlLiteralBigDecimal extends SqlExpr<BigDecimal> {
+	public static class SqlLiteral<T> extends SqlExpr<T> {
 
-		private final BigDecimal value;
+		private final T value;
+		private final Class<T> type;
 
-		public SqlLiteralBigDecimal(BigDecimal value) {
+		public SqlLiteral(T value, Class<T> type) {
 			this.value = value;
+			this.type = type;
 
 		}
 
@@ -765,46 +604,15 @@ public abstract class Dao<DTO> {
 
 		@Override
 		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			st.setBigDecimal(parameterIndex.nextValue(), value);
-		}
-	}
-
-	public static class SqlLiteralString extends SqlExpr<String> {
-
-		private final String value;
-
-		public SqlLiteralString(String value) {
-			this.value = value;
-
+			if (type == String.class) st.setString(parameterIndex.nextValue(), (String) value);
+			else if (type == BigDecimal.class) st.setBigDecimal(parameterIndex.nextValue(), (BigDecimal) value);
+			else if (type == Timestamp.class) st.setTimestamp(parameterIndex.nextValue(), (Timestamp) value);
+			else throw new RuntimeException("Invalid type: " + type.getName());
 		}
 
 		@Override
-		public String toSql() {
-			return "?";
-		}
-
-		@Override
-		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			st.setString(parameterIndex.nextValue(), value);
-		}
-	}
-
-	public static class SqlLiteralTimestamp extends SqlExpr<Timestamp> {
-		private final Timestamp value;
-
-		public SqlLiteralTimestamp(Timestamp value) {
-			this.value = value;
-
-		}
-
-		@Override
-		public String toSql() {
-			return "?";
-		}
-
-		@Override
-		public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
-			st.setTimestamp(parameterIndex.nextValue(), value);
+		public boolean isDefinitelyNull() {
+			return value == null;
 		}
 	}
 
@@ -850,26 +658,17 @@ public abstract class Dao<DTO> {
 		};
 	}
 
+	/**
+	 * @param <T>
+	 *            Java type associated with the expression.
+	 */
 	public abstract static class SqlExpr<T> extends SqlFragment {
 
-		@SuppressWarnings("unchecked")
-		public T fetch(Connection cnx) {
-			PreparedStatement st = null;
-			try {
-				try {
-					st = cnx.prepareStatement(String.format("select %s from dual", toSql()));
-					bind(st, new Sequence(1));
-					final ResultSet rs = st.executeQuery();
-					rs.next();
-					final Object obj = rs.getObject(1);
-					return (T) obj;
-				} catch (final SQLException e) {
-					throw new RuntimeException(e);
-				}
-			} finally {
-				DaoUtil.close(st);
-			}
-		}
+		/**
+		 * Return true if the expression represents the NULL value, false if not
+		 * or it is unknown.
+		 */
+		public abstract boolean isDefinitelyNull();
 
 		public static <T> SqlExpr<T> raw(String sql) {
 			return new SqlExprRaw<T>(sql);
@@ -880,22 +679,34 @@ public abstract class Dao<DTO> {
 		}
 
 		public static SqlExpr<String> lit(String value) {
-			return new SqlLiteralString(value);
+			return new SqlLiteral<>(value, String.class);
 		}
 
 		public static SqlExpr<BigDecimal> lit(BigDecimal value) {
-			return new SqlLiteralBigDecimal(value);
+			return new SqlLiteral<>(value, BigDecimal.class);
 		}
 
-		public static SqlExpr<BigDecimal> lit(long value) {
-			return new SqlLiteralBigDecimal(new BigDecimal(value));
+		public static SqlExpr<BigDecimal> lit(Long value) {
+			return new SqlLiteral<>(value == null ? null : new BigDecimal(value.longValue()), BigDecimal.class);
+		}
+
+		public static SqlExpr<BigDecimal> lit(Integer value) {
+			return new SqlLiteral<>(value == null ? null : new BigDecimal(value.intValue()), BigDecimal.class);
 		}
 
 		public static SqlExpr<Timestamp> lit(Timestamp value) {
-			return new SqlLiteralTimestamp(value);
+			return new SqlLiteral<>(value, Timestamp.class);
 		}
 
 		public static final SqlExpr<Timestamp> sysdate = new SqlExprRaw<Timestamp>("sysdate");
 
+	}
+
+	public String getTableName() {
+		return tableName;
+	}
+
+	public Collection<Field<?, DTO>> getFields() {
+		return fields;
 	}
 }

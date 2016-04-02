@@ -20,4 +20,13 @@ public class TypeUtils {
 	public static Class<?> getPrimitiveWrapper(String primitiveTypeName) {
 		return primitiveWrappers.get(primitiveTypeName);
 	}
+
+	/**
+	 * Return the wrapper class name if typeName is a primitive java type, or
+	 * typeName otherwise.
+	 */
+	public static String getClassName(String typeName) {
+		final Class<?> wrapper = getPrimitiveWrapper(typeName);
+		return wrapper != null ? wrapper.getSimpleName() : typeName;
+	}
 }

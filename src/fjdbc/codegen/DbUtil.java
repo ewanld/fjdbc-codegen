@@ -141,16 +141,22 @@ public class DbUtil {
 		return res;
 	}
 
-	public Collection<TableDescriptor> searchTables() throws SQLException {
+	public Collection<TableDescriptor> searchTables(boolean alsoSearchColumns) throws SQLException {
 		final Collection<TableDescriptor> res = new ArrayList<TableDescriptor>();
 		final DatabaseMetaData metaData = cnx.getMetaData();
 		final ResultSet rs = metaData.getTables(null, metaData.getUserName(), null, null);
 		while (rs.next()) {
 			final String name = rs.getString(3);
 			final String type = rs.getString(4);
-			res.add(new TableDescriptor(name, type));
+			final TableDescriptor table = new TableDescriptor(name, type);
+			if (alsoSearchColumns) {
+				final Collection<ColumnDescriptor> columns = searchColumns(name);
+				table.setColumns(columns);
+			}
+			res.add(table);
 		}
 		rs.close();
+
 		return res;
 	}
 
@@ -158,7 +164,7 @@ public class DbUtil {
 		private final String name;
 		private final int type;
 		private final boolean primaryKey;
-		private final int nullable;
+		private final boolean nullable;
 		private final String typeName;
 		private final String className;
 		private final boolean autoIncrement;
@@ -168,15 +174,11 @@ public class DbUtil {
 		 * @param type
 		 *            Value from java.sql.Types.
 		 * @param primaryKey
-		 * @param nullable
-		 *            the nullability status of the given column; one of
-		 *            ResultSetMetaData.columnNoNulls, columnNullable or
-		 *            columnNullableUnknown.
 		 * @param className
 		 * @param typeName
 		 * @param autoIncrement
 		 */
-		public ColumnDescriptor(String name, int type, boolean primaryKey, int nullable, String typeName,
+		public ColumnDescriptor(String name, int type, boolean primaryKey, boolean nullable, String typeName,
 				String className, boolean autoIncrement) {
 			this.name = name;
 			this.type = type;
@@ -210,10 +212,6 @@ public class DbUtil {
 			return primaryKey;
 		}
 
-		public int getNullable() {
-			return nullable;
-		}
-
 		public String getTypeName() {
 			return typeName;
 		}
@@ -224,6 +222,10 @@ public class DbUtil {
 
 		public boolean isAutoIncrement() {
 			return autoIncrement;
+		}
+
+		public boolean isNullable() {
+			return nullable;
 		}
 	}
 
@@ -237,7 +239,7 @@ public class DbUtil {
 			final int columnType = rs.getInt("DATA_TYPE");
 			final String typeName = rs.getString("TYPE_NAME");
 			final String columnName = rs.getString("COLUMN_NAME");
-			final int nullable = rs.getInt("NULLABLE");
+			final boolean nullable = rs.getInt("NULLABLE") != ResultSetMetaData.columnNoNulls;
 			final boolean autoIncrement = rs.getString("IS_AUTOINCREMENT").equals("YES");
 			final boolean pk = primaryKeys.contains(columnName);
 			res.add(new ColumnDescriptor(columnName, columnType, pk, nullable, typeName, "", autoIncrement));
@@ -264,7 +266,7 @@ public class DbUtil {
 
 	public void deleteAllTables() throws SQLException {
 		checkUser();
-		final Collection<TableDescriptor> tables = searchTables();
+		final Collection<TableDescriptor> tables = searchTables(false);
 		for (final TableDescriptor t : tables) {
 			deleteTable(t.getName());
 		}
@@ -277,7 +279,7 @@ public class DbUtil {
 
 	public void copyAllTablesFromSchema(String sourceSchema) throws SQLException {
 		enableAllConstraints(false);
-		final Collection<TableDescriptor> tables = searchTables();
+		final Collection<TableDescriptor> tables = searchTables(false);
 		for (final TableDescriptor t : tables) {
 			deleteTable(t.getName());
 			copyTableFromSchema(t.getName(), sourceSchema);
@@ -330,7 +332,7 @@ public class DbUtil {
 	}
 
 	public void writeAllTablesToCsv(String outputDir) throws SQLException, IOException {
-		final Collection<TableDescriptor> tables = searchTables();
+		final Collection<TableDescriptor> tables = searchTables(false);
 		for (final TableDescriptor table : tables) {
 			final FileWriter writer = new FileWriter(String.format("%s/%s.csv", outputDir, table.getName()));
 			final String query = String.format("select * from %s", table.getName());
@@ -379,6 +381,7 @@ public class DbUtil {
 	public static class TableDescriptor {
 		private final String name;
 		private final String type;
+		private Collection<ColumnDescriptor> columns;
 
 		public TableDescriptor(String name, String type) {
 			this.name = name;
@@ -395,6 +398,14 @@ public class DbUtil {
 
 		public String getType() {
 			return type;
+		}
+
+		public Collection<ColumnDescriptor> getColumns() {
+			return columns;
+		}
+
+		public void setColumns(Collection<ColumnDescriptor> columns) {
+			this.columns = columns;
 		}
 	}
 }

@@ -3,7 +3,10 @@ package fjdbc;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
-public abstract class SqlFragment {
+import com.github.fjdbc.PreparedStatementBinder;
+import com.github.fjdbc.Sequence;
+
+public abstract class SqlFragment implements PreparedStatementBinder {
 	public abstract String toSql();
 
 	@Override
@@ -11,6 +14,7 @@ public abstract class SqlFragment {
 		return toSql();
 	}
 
+	@Override
 	public void bind(PreparedStatement st, Sequence parameterIndex) throws SQLException {
 		// do nothing
 	}
