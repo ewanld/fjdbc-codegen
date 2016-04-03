@@ -166,7 +166,6 @@ public class DbUtil {
 		private final boolean primaryKey;
 		private final boolean nullable;
 		private final String typeName;
-		private final String className;
 		private final boolean autoIncrement;
 
 		/**
@@ -174,18 +173,16 @@ public class DbUtil {
 		 * @param type
 		 *            Value from java.sql.Types.
 		 * @param primaryKey
-		 * @param className
 		 * @param typeName
 		 * @param autoIncrement
 		 */
 		public ColumnDescriptor(String name, int type, boolean primaryKey, boolean nullable, String typeName,
-				String className, boolean autoIncrement) {
+				boolean autoIncrement) {
 			this.name = name;
 			this.type = type;
 			this.primaryKey = primaryKey;
 			this.nullable = nullable;
 			this.typeName = typeName;
-			this.className = className;
 			this.autoIncrement = autoIncrement;
 		}
 
@@ -216,10 +213,6 @@ public class DbUtil {
 			return typeName;
 		}
 
-		public String getClassName() {
-			return className;
-		}
-
 		public boolean isAutoIncrement() {
 			return autoIncrement;
 		}
@@ -242,7 +235,7 @@ public class DbUtil {
 			final boolean nullable = rs.getInt("NULLABLE") != ResultSetMetaData.columnNoNulls;
 			final boolean autoIncrement = rs.getString("IS_AUTOINCREMENT").equals("YES");
 			final boolean pk = primaryKeys.contains(columnName);
-			res.add(new ColumnDescriptor(columnName, columnType, pk, nullable, typeName, "", autoIncrement));
+			res.add(new ColumnDescriptor(columnName, columnType, pk, nullable, typeName, autoIncrement));
 		}
 		return res;
 	}

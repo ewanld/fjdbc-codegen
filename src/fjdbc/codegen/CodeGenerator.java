@@ -239,7 +239,7 @@ public class CodeGenerator {
 			boolean first = true;
 			for (final ColumnDescriptor col : columns) {
 			final JdbcType type = getJdbcType(col.getType());
-			writeln("				%s SqlExpr<%s> _%s", first ? " " : ",", type.getJavaClassName(), col.getName().toLowerCase());
+			writeln("				%s SqlExpr<%s, %s> _%s", first ? " " : ",", type.getJavaClassName(), toClassName(table.getName()), col.getName().toLowerCase());
 			first = false;
 			}
 			writeln("		) {");
