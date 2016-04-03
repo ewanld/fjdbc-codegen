@@ -17,18 +17,19 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang.StringUtils;
 
 import fjdbc.codegen.DbUtil.ColumnDescriptor;
+import fjdbc.codegen.DbUtil.DbDescriptor;
 import fjdbc.codegen.DbUtil.SequenceDescriptor;
 import fjdbc.codegen.DbUtil.TableDescriptor;
 import fjdbc.codegen.util.TypeUtils;
 
 public class CodeGenerator {
-	private final DbUtil dbUtil;
 	private final Map<Integer, JdbcType> jdbcTypeMap;
 	private final String packageName;
 	private final String sourceDir;
+	private final DbDescriptor dbDescriptor;
 
-	public CodeGenerator(DbUtil dbUtil, String outputDir, String packageName) {
-		this.dbUtil = dbUtil;
+	public CodeGenerator(DbDescriptor dbDescriptor, String outputDir, String packageName) throws SQLException {
+		this.dbDescriptor = dbDescriptor;
 		this.packageName = packageName;
 		sourceDir = outputDir + "/" + packageName.replace('.', '/');
 
@@ -94,7 +95,7 @@ public class CodeGenerator {
 
 	public void gen_Sequences() throws IOException, SQLException {
 		final SequencesGenerator seq = new SequencesGenerator(new FileWriter(sourceDir + "/Sequences.java"));
-		final Collection<SequenceDescriptor> sequences = dbUtil.searchSequences();
+		final Collection<SequenceDescriptor> sequences = dbDescriptor.getSequences();
 		seq.gen_header();
 		seq.gen_body(sequences);
 		seq.gen_footer();
@@ -103,7 +104,7 @@ public class CodeGenerator {
 
 	public void gen_Tables() throws SQLException, IOException {
 		try (final TablesGenerator tbl = new TablesGenerator(new FileWriter(sourceDir + "/Tables.java"))) {
-			final Collection<TableDescriptor> tables = dbUtil.searchTables(true);
+			final Collection<TableDescriptor> tables = dbDescriptor.getTables();
 
 			tbl.gen_header(tables);
 
@@ -117,7 +118,7 @@ public class CodeGenerator {
 
 	public void gen_Dto() throws SQLException, IOException {
 		try (final DtoGenerator dto = new DtoGenerator(new FileWriter(sourceDir + "/Dto.java"))) {
-			final Collection<TableDescriptor> tables = dbUtil.searchTables(true);
+			final Collection<TableDescriptor> tables = dbDescriptor.getTables();
 
 			dto.gen_header();
 

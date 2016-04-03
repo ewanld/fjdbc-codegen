@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.Writer;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.JDBCType;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -15,11 +16,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
 
 import fjdbc.codegen.util.CsvWriter;
 import fjdbc.codegen.util.SqlUtils;
+import fjdbc.metadata.JsonDto;
+import fjdbc.metadata.JsonDto.Sequence;
+import fjdbc.metadata.JsonDto.Table;
+import fjdbc.metadata.JsonDto.TableField;
 
 /**
  * Database utilities
@@ -125,6 +131,14 @@ public class DbUtil {
 		public String getName() {
 			return name;
 		}
+
+		public static SequenceDescriptor fromJsonDto(JsonDto.Sequence dto) {
+			return new SequenceDescriptor(dto.name);
+		}
+
+		public JsonDto.Sequence toJsonDto() {
+			return new JsonDto.Sequence(name);
+		}
 	}
 
 	public Collection<SequenceDescriptor> searchSequences() throws SQLException {
@@ -165,7 +179,6 @@ public class DbUtil {
 		private final int type;
 		private final boolean primaryKey;
 		private final boolean nullable;
-		private final String typeName;
 		private final boolean autoIncrement;
 
 		/**
@@ -176,14 +189,22 @@ public class DbUtil {
 		 * @param typeName
 		 * @param autoIncrement
 		 */
-		public ColumnDescriptor(String name, int type, boolean primaryKey, boolean nullable, String typeName,
-				boolean autoIncrement) {
+		public ColumnDescriptor(String name, int type, boolean primaryKey, boolean nullable, boolean autoIncrement) {
 			this.name = name;
 			this.type = type;
 			this.primaryKey = primaryKey;
 			this.nullable = nullable;
-			this.typeName = typeName;
 			this.autoIncrement = autoIncrement;
+		}
+
+		public JsonDto.TableField toJsonDto() {
+			final String typeName = JDBCType.valueOf(type).getName();
+			return new JsonDto.TableField(nullable, name, typeName, primaryKey);
+		}
+
+		public static ColumnDescriptor fromJsonDto(JsonDto.TableField dto) {
+			final JDBCType jdbcType = java.sql.JDBCType.valueOf(dto.type);
+			return new ColumnDescriptor(dto.name, jdbcType.getVendorTypeNumber(), dto.primaryKey, dto.nullable, false);
 		}
 
 		public String getName() {
@@ -209,10 +230,6 @@ public class DbUtil {
 			return primaryKey;
 		}
 
-		public String getTypeName() {
-			return typeName;
-		}
-
 		public boolean isAutoIncrement() {
 			return autoIncrement;
 		}
@@ -230,12 +247,11 @@ public class DbUtil {
 
 		while (rs.next()) {
 			final int columnType = rs.getInt("DATA_TYPE");
-			final String typeName = rs.getString("TYPE_NAME");
 			final String columnName = rs.getString("COLUMN_NAME");
 			final boolean nullable = rs.getInt("NULLABLE") != ResultSetMetaData.columnNoNulls;
 			final boolean autoIncrement = rs.getString("IS_AUTOINCREMENT").equals("YES");
 			final boolean pk = primaryKeys.contains(columnName);
-			res.add(new ColumnDescriptor(columnName, columnType, pk, nullable, typeName, autoIncrement));
+			res.add(new ColumnDescriptor(columnName, columnType, pk, nullable, autoIncrement));
 		}
 		return res;
 	}
@@ -371,6 +387,45 @@ public class DbUtil {
 		}
 	}
 
+	public static class DbDescriptor {
+		private final List<TableDescriptor> tables;
+		private final List<SequenceDescriptor> sequences;
+		private final String dialect;
+
+		public DbDescriptor(List<TableDescriptor> tables, List<SequenceDescriptor> sequences, String dialect) {
+			this.tables = tables;
+			this.sequences = sequences;
+			this.dialect = dialect;
+		}
+
+		public static DbDescriptor fromJsonDto(JsonDto.Root dto) {
+			final List<TableDescriptor> tables = dto.tables.stream().map(TableDescriptor::fromJsonDto)
+					.collect(Collectors.toList());
+			final List<SequenceDescriptor> sequences = dto.sequences.stream().map(SequenceDescriptor::fromJsonDto)
+					.collect(Collectors.toList());
+			return new DbDescriptor(tables, sequences, dto.dialect);
+		}
+
+		public JsonDto.Root toJsonDto() {
+			final List<Table> tablesDto = tables.stream().map(TableDescriptor::toJsonDto).collect(Collectors.toList());
+			final List<Sequence> sequencesDto = sequences.stream().map(SequenceDescriptor::toJsonDto)
+					.collect(Collectors.toList());
+			return new JsonDto.Root(tablesDto, dialect, sequencesDto);
+		}
+
+		public List<TableDescriptor> getTables() {
+			return tables;
+		}
+
+		public List<SequenceDescriptor> getSequences() {
+			return sequences;
+		}
+
+		public String getDialect() {
+			return dialect;
+		}
+	}
+
 	public static class TableDescriptor {
 		private final String name;
 		private final String type;
@@ -399,6 +454,20 @@ public class DbUtil {
 
 		public void setColumns(Collection<ColumnDescriptor> columns) {
 			this.columns = columns;
+		}
+
+		public JsonDto.Table toJsonDto() {
+			final List<TableField> tableFields = columns.stream().map(ColumnDescriptor::toJsonDto)
+					.collect(Collectors.toList());
+			return new JsonDto.Table(name, tableFields, type);
+		}
+
+		public static TableDescriptor fromJsonDto(JsonDto.Table dto) {
+			final List<ColumnDescriptor> fields = dto.fields.stream().map(ColumnDescriptor::fromJsonDto)
+					.collect(Collectors.toList());
+			final TableDescriptor res = new TableDescriptor(dto.name, dto.type);
+			res.setColumns(fields);
+			return res;
 		}
 	}
 }
