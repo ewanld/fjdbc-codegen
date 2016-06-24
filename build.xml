@@ -1,0 +1,77 @@
+<project name="richie-codegen" default="jar-all">
+	<property name="buildDir" value="./build" />
+	<property name="libDir" value="./lib" />
+
+	<path id="master-classpath">
+		<pathelement path="${classpath}" />
+		<fileset dir="${libDir}">
+			<include name="*.jar" />
+		</fileset>
+	</path>
+
+	<target name="jar-all" depends="jar-core,jar-codegen,jar-ant" />
+	
+	<target name="clean-all" depends="clean-core,clean-codegen,clean-ant" />
+		
+	<target name="clean-core">
+		<delete dir="${buildDir}/classes" />
+		<delete file="${libDir}/richie.jar"/>
+		<delete file="${libDir}/richie-codegen.jar"/>
+		<delete file="${libDir}/richie-ant.jar"/>
+	</target>
+	
+	<target name="compile-core" depends="clean-core">
+		<mkdir dir="${buildDir}/classes-core" />
+		<javac destdir="${buildDir}/classes-core">
+			<src path="src" />
+			<classpath refid="master-classpath" />
+		</javac>
+	</target>
+
+	<target name="jar-core" depends="compile-core">
+		<jar destfile="${libDir}/richie.jar" basedir="${buildDir}/classes-core">
+		</jar>
+	</target>
+
+	<target name="clean-codegen">
+		<delete dir="${buildDir}/classes-codegen" />
+		<delete file="${libDir}/richie-codegen.jar"/>
+	</target>
+		
+	<target name="compile-codegen" depends="clean-codegen,compile-core">
+		<mkdir dir="${buildDir}/classes-codegen" />
+		<javac destdir="${buildDir}/classes-codegen">
+			<src path="src-codegen-generated" />
+			<src path="src-codegen" />
+			<classpath refid="master-classpath" />
+			<classpath path="${buildDir}/classes-core"/>
+		</javac>
+	</target>
+	
+	<target name="jar-codegen" depends="compile-codegen">
+		<jar destfile="${libDir}/richie-codegen.jar">
+			<fileset dir="${buildDir}/classes-codegen"/>
+		</jar>
+	</target>
+	
+	<target name="clean-ant">
+		<delete dir="${buildDir}/classes-ant" />
+		<delete file="${libDir}/richie-ant.jar"/>
+	</target>
+			
+	<target name="compile-ant" depends="clean-ant,compile-core,compile-codegen">
+		<mkdir dir="${buildDir}/classes-ant" />
+		<javac destdir="${buildDir}/classes-ant">
+			<src path="src-ant" />
+			<classpath refid="master-classpath" />
+			<classpath path="${buildDir}/classes-core"/>
+			<classpath path="${buildDir}/classes-codegen"/>
+		</javac>
+	</target>
+
+	<target name="jar-ant" depends="compile-ant">
+		<jar destfile="${libDir}/richie-ant.jar" basedir="${buildDir}/classes-ant">
+		</jar>
+	</target>
+		
+</project>
