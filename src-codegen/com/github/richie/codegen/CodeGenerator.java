@@ -16,7 +16,7 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.github.fjdbc.PreparedStatementBinder;
 import com.github.fjdbc.op.DbOp;
-import com.github.fjdbc.op.PreparedStatementOp;
+import com.github.fjdbc.op.StatementOp;
 import com.github.fjdbc.query.ResultSetExtractor;
 import com.github.fjdbc.util.PreparedStatementEx;
 import com.github.richie.DbDialect;
@@ -160,7 +160,7 @@ public class CodeGenerator {
 			writeln("import %s;", PreparedStatementEx.class.getName());
 			writeln("import %s;", PreparedStatementBinder.class.getName());
 			writeln("import %s;", DbOp.class.getName());
-			writeln("import %s;", PreparedStatementOp.class.getName());
+			writeln("import %s;", StatementOp.class.getName());
 			writeln("import %s;", DbDialect.class.getName());
 			writeln("import %s;", RuntimeContext.class.getName());
 			writeln("import %s.Dto.*;", packageName);

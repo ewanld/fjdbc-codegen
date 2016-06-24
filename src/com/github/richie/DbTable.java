@@ -17,7 +17,7 @@ import java.util.stream.Stream;
 import com.github.fjdbc.CompositePreparedStatementBinder;
 import com.github.fjdbc.PreparedStatementBinder;
 import com.github.fjdbc.op.DbOp;
-import com.github.fjdbc.op.PreparedStatementOp;
+import com.github.fjdbc.op.StatementOp;
 import com.github.fjdbc.query.Query;
 import com.github.fjdbc.query.ResultSetExtractor;
 import com.github.fjdbc.util.IntSequence;
@@ -123,7 +123,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 
 		System.out.println(query.toString());
 		final PreparedStatementBinder binder = getPsBinder(_value, true, true);
-		return new PreparedStatementOp(query.toString(), binder);
+		return new StatementOp(query.toString(), binder);
 	}
 
 	private DbOp merge_oracle(DTO _value) {
@@ -151,7 +151,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		final PreparedStatementBinder binder = new CompositePreparedStatementBinder(
 				Arrays.asList(pkBinder, nonPkBinder, pkBinder, nonPkBinder));
 
-		return new PreparedStatementOp(sql, binder);
+		return new StatementOp(sql, binder);
 	}
 
 	public boolean exists(Condition<DTO> condition) {
@@ -193,7 +193,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		if (condition != null) binders.add(condition);
 		final PreparedStatementBinder binder = new CompositePreparedStatementBinder(binders);
 
-		return new PreparedStatementOp(sql.toString(), binder);
+		return new StatementOp(sql.toString(), binder);
 	}
 
 	public FluentUpdate<DTO> update() {
@@ -240,7 +240,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 
 	public DbOp insert(DTO _value) {
 		final String sql = getInsertSql();
-		return new PreparedStatementOp(sql.toString(), getPsBinder(_value, true, true));
+		return new StatementOp(sql.toString(), getPsBinder(_value, true, true));
 	}
 
 	private String getInsertSql() {
@@ -254,7 +254,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 	public DbOp delete(Condition<DTO> condition) {
 		final String condition_sql = condition == null ? "1=1" : condition.toSql();
 		final String sql = String.format("delete from %s where %s", toSql(), condition_sql);
-		return new PreparedStatementOp(sql, condition);
+		return new StatementOp(sql, condition);
 	}
 
 	public double selectAvg(Field<? extends Number, DTO> field, Condition<DTO> condition) {
@@ -288,7 +288,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		final StringBuilder sql = new StringBuilder(
 				String.format("insert into %s(%s) values(%s)", toSql(), fields_str, values_str));
 		final PreparedStatementBinder binder = new CompositePreparedStatementBinder(values);
-		return new PreparedStatementOp(sql.toString(), binder);
+		return new StatementOp(sql.toString(), binder);
 	}
 
 	public abstract static class ConditionSimple<DTO> extends Condition<DTO> {
