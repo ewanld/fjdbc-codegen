@@ -70,7 +70,7 @@ public class Field<T, DTO> extends SqlExpr<T, DTO> {
 		final PreparedStatementBinder binder = (st, paramIndex) -> {
 			if (condition != null) condition.bind(st, paramIndex);
 		};
-		final List<T> res_list = new Query<>(parent.getConnection(), sql, binder, extractor).toList();
+		final List<T> res_list = new Query<>(parent.getConnectionProvider(), sql, binder, extractor).toList();
 		assert res_list.size() == 0;
 		return res_list.get(0);
 	}

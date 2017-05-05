@@ -80,26 +80,27 @@ public abstract class SqlExpr<T, DTO> extends SqlFragment {
 		}
 
 		public Stream<T> stream() {
-			return toPreparedQuery().stream();
+			return toQuery().stream();
 		}
 
 		public void forEach(Consumer<T> callback) {
-			toPreparedQuery().forEach(callback);
+			try (Stream<T> stream = toQuery().stream()) {
+				forEach(callback);
+			}
 		}
 
-		private Query<T> toPreparedQuery() {
+		private Query<T> toQuery() {
 			final boolean _distinct = distinct == null ? false : distinct.booleanValue();
 			return field.select(_distinct, condition, orderBy);
 		}
 
 		public List<T> toList() {
-			return toPreparedQuery().toList();
+			return toQuery().toList();
 		}
 
 	}
 
-	public Query<T> select(boolean distinct, Condition<DTO> condition,
-			Collection<DbTable.OrderByClause> orderBy) {
+	public Query<T> select(boolean distinct, Condition<DTO> condition, Collection<DbTable.OrderByClause> orderBy) {
 		if (parent == null) throw new RuntimeException(
 				String.format("Cannot select the expression '%s' because it does not refer to any table", toSql()));
 
@@ -117,7 +118,7 @@ public abstract class SqlExpr<T, DTO> extends SqlFragment {
 		final PreparedStatementBinder binder = (st, paramIndex) -> {
 			if (condition != null) condition.bind(st, paramIndex);
 		};
-		return new Query<T>(parent.getConnection(), query.toString(), binder, fieldExtractor);
+		return new Query<T>(parent.getConnectionProvider(), query.toString(), binder, fieldExtractor);
 	}
 
 	/**

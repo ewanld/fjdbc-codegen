@@ -1,6 +1,5 @@
 package com.github.richie;
 
-import java.sql.Connection;
 import java.util.Collection;
 
 public class DbTableCollection {

@@ -1,13 +1,13 @@
 package com.github.richie;
 
-import java.sql.Connection;
+import com.github.fjdbc.ConnectionProvider;
 
 public class RuntimeContext {
-	public final Connection cnx;
+	public final ConnectionProvider cnxProvider;
 	public final DbDialect dialect;
 
-	public RuntimeContext(Connection cnx, DbDialect dialect) {
-		this.cnx = cnx;
+	public RuntimeContext(ConnectionProvider cnxProvider, DbDialect dialect) {
+		this.cnxProvider = cnxProvider;
 		this.dialect = dialect;
 	}
 

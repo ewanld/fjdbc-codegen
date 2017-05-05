@@ -1,6 +1,5 @@
 package com.github.richie;
 
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -15,9 +14,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.github.fjdbc.CompositePreparedStatementBinder;
+import com.github.fjdbc.ConnectionProvider;
 import com.github.fjdbc.PreparedStatementBinder;
-import com.github.fjdbc.op.DbOp;
-import com.github.fjdbc.op.StatementOp;
+import com.github.fjdbc.op.DbOperation;
+import com.github.fjdbc.op.StatementOperation;
 import com.github.fjdbc.query.Query;
 import com.github.fjdbc.query.ResultSetExtractor;
 import com.github.fjdbc.util.IntSequence;
@@ -35,12 +35,12 @@ public abstract class DbTable<DTO> extends SqlFragment {
 	 * Unmodifiable
 	 */
 	private Collection<Field<?, DTO>> fields;
-	private final Connection cnx;
+	private final ConnectionProvider cnxProvider;
 	private final DbDialect dialect;
 
 	public DbTable(RuntimeContext ctx, String tableName, ResultSetExtractor<DTO> extractor) {
 		this.ctx = ctx;
-		this.cnx = ctx.cnx;
+		this.cnxProvider = ctx.cnxProvider;
 		this.dialect = ctx.dialect;
 		this.tableName = tableName;
 		this.extractor = extractor;
@@ -81,15 +81,15 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		}
 		System.out.println(query);
 		final PreparedStatementBinder binder = (st, paramIndex) -> {
-			if (condition != null) condition.bind(st);
+			if (condition != null) condition.bind(st, new IntSequence(1));
 		};
-		return new Query<>(cnx, query.toString(), binder, extractor);
+		return new Query<>(cnxProvider, query.toString(), binder, extractor);
 	}
 
 	public int count(Condition<DTO> condition) {
 		final String condition_sql = condition == null ? "1=1" : condition.toSql();
 		final String sql = String.format("select count(*) from %s where %s", toSql(), condition_sql);
-		try (PreparedStatement st = cnx.prepareStatement(sql)) {
+		try (PreparedStatement st = cnxProvider.borrow().prepareStatement(sql)) {
 			if (condition != null) condition.bind(st, new IntSequence(1));
 			final ResultSet rs = st.executeQuery();
 			rs.next();
@@ -97,10 +97,12 @@ public abstract class DbTable<DTO> extends SqlFragment {
 			return res;
 		} catch (final SQLException e) {
 			throw new RuntimeException(e);
+		} finally {
+			cnxProvider.giveBack();
 		}
 	}
 
-	public DbOp merge(DTO _value) {
+	public DbOperation merge(DTO _value) {
 		switch (dialect) {
 		case ORACLE:
 			return merge_oracle(_value);
@@ -111,7 +113,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		}
 	}
 
-	private DbOp merge_mySql(DTO _value) {
+	private DbOperation merge_mySql(DTO _value) {
 
 		final StringBuilder query = new StringBuilder("replace into ").append(toSql());
 
@@ -123,10 +125,10 @@ public abstract class DbTable<DTO> extends SqlFragment {
 
 		System.out.println(query.toString());
 		final PreparedStatementBinder binder = getPsBinder(_value, true, true);
-		return new StatementOp(query.toString(), binder);
+		return new StatementOperation(ctx.cnxProvider, query.toString(), binder);
 	}
 
-	private DbOp merge_oracle(DTO _value) {
+	private DbOperation merge_oracle(DTO _value) {
 		final long nPKs = fields.stream().filter(Field::isPrimaryKey).count();
 		if (nPKs == 0) throw new RuntimeException(
 				String.format("Cannot call method merge because the table %s has no primary key", tableName));
@@ -151,7 +153,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		final PreparedStatementBinder binder = new CompositePreparedStatementBinder(
 				Arrays.asList(pkBinder, nonPkBinder, pkBinder, nonPkBinder));
 
-		return new StatementOp(sql, binder);
+		return new StatementOperation(ctx.cnxProvider, sql, binder);
 	}
 
 	public boolean exists(Condition<DTO> condition) {
@@ -161,26 +163,28 @@ public abstract class DbTable<DTO> extends SqlFragment {
 
 	public int[] insertBatch(Iterable<DTO> values, Long commitEveryNRows) {
 		final String sql = getInsertSql();
-		try (PreparedStatement st = cnx.prepareStatement(sql)) {
+		try (PreparedStatement st = cnxProvider.borrow().prepareStatement(sql)) {
 			long i = 1L;
 			for (final DTO _value : values) {
 				final PreparedStatementBinder binder = getPsBinder(_value, true, true);
-				binder.bind(st);
+				binder.bind(st, new IntSequence(1));
 				st.addBatch();
 				if (commitEveryNRows != null && i++ == commitEveryNRows) {
-					cnx.commit();
+					cnxProvider.commit();
 					i = 1L;
 				}
 			}
 			final int[] nRows = st.executeBatch();
-			if (commitEveryNRows != null) cnx.commit();
+			if (commitEveryNRows != null) cnxProvider.commit();
 			return nRows;
 		} catch (final SQLException e) {
 			throw new RuntimeException(e);
+		} finally {
+			cnxProvider.giveBack();
 		}
 	}
 
-	public DbOp update(Collection<SqlSetClause<?, DTO>> updates, Condition<DTO> condition) {
+	public DbOperation update(Collection<SqlSetClause<?, DTO>> updates, Condition<DTO> condition) {
 		assert updates != null;
 		assert updates.size() >= 1;
 		final StringBuilder sql = new StringBuilder();
@@ -193,7 +197,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		if (condition != null) binders.add(condition);
 		final PreparedStatementBinder binder = new CompositePreparedStatementBinder(binders);
 
-		return new StatementOp(sql.toString(), binder);
+		return new StatementOperation(cnxProvider, sql.toString(), binder);
 	}
 
 	public FluentUpdate<DTO> update() {
@@ -222,15 +226,11 @@ public abstract class DbTable<DTO> extends SqlFragment {
 			return this;
 		}
 
-		public int execute() throws SQLException {
-			return toDbOp().execute(table.cnx);
-		}
-
 		public int executeAndCommit() {
-			return toDbOp().executeAndCommit(table.cnx);
+			return toDbOp().executeAndCommit();
 		}
 
-		public DbOp toDbOp() {
+		public DbOperation toDbOp() {
 			return table.update(updates, condition);
 		}
 
@@ -238,9 +238,9 @@ public abstract class DbTable<DTO> extends SqlFragment {
 
 	protected abstract PreparedStatementBinder getPsBinder(DTO _value, boolean bindPKs, boolean bindNonPKs);
 
-	public DbOp insert(DTO _value) {
+	public DbOperation insert(DTO _value) {
 		final String sql = getInsertSql();
-		return new StatementOp(sql.toString(), getPsBinder(_value, true, true));
+		return new StatementOperation(cnxProvider, sql.toString(), getPsBinder(_value, true, true));
 	}
 
 	private String getInsertSql() {
@@ -251,10 +251,10 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		return sql;
 	}
 
-	public DbOp delete(Condition<DTO> condition) {
+	public DbOperation delete(Condition<DTO> condition) {
 		final String condition_sql = condition == null ? "1=1" : condition.toSql();
 		final String sql = String.format("delete from %s where %s", toSql(), condition_sql);
-		return new StatementOp(sql, condition);
+		return new StatementOperation(cnxProvider, sql, condition);
 	}
 
 	public double selectAvg(Field<? extends Number, DTO> field, Condition<DTO> condition) {
@@ -264,7 +264,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		final PreparedStatementBinder binder = (st, paramIndex) -> {
 			if (condition != null) condition.bind(st, paramIndex);
 		};
-		final List<? extends Number> res_list = new Query<>(cnx, sql, binder, extractor).toList();
+		final List<? extends Number> res_list = new Query<>(cnxProvider, sql, binder, extractor).toList();
 		assert res_list.size() == 0;
 		return res_list.get(0).doubleValue();
 	}
@@ -277,7 +277,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		return res;
 	}
 
-	protected DbOp insert(Collection<SqlExpr<?, DTO>> values) {
+	protected DbOperation insert(Collection<SqlExpr<?, DTO>> values) {
 		assert values != null;
 		assert values.size() == fields.size();
 
@@ -288,7 +288,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		final StringBuilder sql = new StringBuilder(
 				String.format("insert into %s(%s) values(%s)", toSql(), fields_str, values_str));
 		final PreparedStatementBinder binder = new CompositePreparedStatementBinder(values);
-		return new StatementOp(sql.toString(), binder);
+		return new StatementOperation(cnxProvider, sql.toString(), binder);
 	}
 
 	public abstract static class ConditionSimple<DTO> extends Condition<DTO> {
@@ -527,7 +527,9 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		}
 		
 		public void forEach(Consumer<DTO> callback) {
-			toPreparedQuery().forEach(callback);
+			try(Stream<DTO> stream = toPreparedQuery().stream()) {
+				stream.forEach(callback);
+			}
 		}
 
 		public List<DTO> toList() {
@@ -591,7 +593,7 @@ public abstract class DbTable<DTO> extends SqlFragment {
 		return fields;
 	}
 
-	public Connection getConnection() {
-		return cnx;
+	public ConnectionProvider getConnectionProvider() {
+		return cnxProvider;
 	}
 }
