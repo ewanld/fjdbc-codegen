@@ -1,6 +1,6 @@
 package com.github.richie.codegen;
 
-import static com.github.johnson.codegen.ObjectTypeFactory.*;
+import static com.github.johnson.codegen.JohnsonTypeFactory.*;
 
 import java.io.FileOutputStream;
 import java.util.HashMap;
